@@ -80,7 +80,9 @@ svg {
   cursor: pointer;
   font-family: inherit;
   user-select: none;
-  transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+  transition:
+    background-color 0.3s ease-in-out,
+    color 0.3s ease-in-out;
 }
 
 #login-button:hover {
@@ -535,12 +537,16 @@ input:checked + .slider:before {
 .notification-item.leaving {
   opacity: 0;
   transform: translateY(-4px);
-  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+  transition:
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
 }
 
 .notification-item.collapsing {
   overflow: hidden;
-  transition: height 0.4s ease-in-out, margin 0.4s ease-in-out,
+  transition:
+    height 0.4s ease-in-out,
+    margin 0.4s ease-in-out,
     padding 0.4s ease-in-out;
 }
 
@@ -641,7 +647,8 @@ input:checked + .slider:before {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-image: linear-gradient(#fff, #fff),
+  background-image:
+    linear-gradient(#fff, #fff),
     linear-gradient(180deg, #00ffa3 0, #027f80 100%);
   position: relative;
   background-clip: content-box, border-box;
@@ -657,7 +664,8 @@ input:checked + .slider:before {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-image: linear-gradient(#fff, #fff),
+  background-image:
+    linear-gradient(#fff, #fff),
     linear-gradient(180deg, #f5f5f5 0, #f5f5f5 100%);
   position: relative;
   background-clip: content-box, border-box;
@@ -762,7 +770,9 @@ input:checked + .slider:before {
 .video-category-link {
   text-decoration: none;
   color: black;
-  transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+  transition:
+    background-color 0.3s ease-in-out,
+    color 0.3s ease-in-out;
 }
 
 .live-category-link:hover,
@@ -1042,7 +1052,9 @@ input:checked + .slider:before {
   border-radius: 3px;
   padding: 2px 4px;
   cursor: pointer;
-  transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+  transition:
+    background-color 0.3s ease-in-out,
+    color 0.3s ease-in-out;
 }
 
 .goto-party-btn:hover,
@@ -1107,6 +1119,26 @@ input:checked + .slider:before {
   word-break: break-word;
 }
 
+.subscription-gift-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.subscription-gift-message {
+  line-height: 1.35;
+}
+
+.subscription-gift-meta {
+  width: fit-content;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: #f2fff7;
+  color: #087c4f;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .edited-indicator {
   color: #888;
   font-size: 11px;
@@ -1121,7 +1153,9 @@ input:checked + .slider:before {
   padding: 5px;
   user-select: none;
   transform: scale(1);
-  transition: transform 0.3s ease-in-out, color 0.3s ease-in-out;
+  transition:
+    transform 0.3s ease-in-out,
+    color 0.3s ease-in-out;
   will-change: transform;
 }
 
@@ -1303,19 +1337,25 @@ input:checked + .slider:before {
   border-radius: 5px;
   border: none;
   padding: 3px;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255), 0 0 0 4px rgb(197, 197, 197),
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255),
+    0 0 0 4px rgb(197, 197, 197),
     0 0 0 6px rgba(197, 197, 197, 0.06);
   transition: box-shadow 0.2s ease-in-out;
 }
 
 #display-limit-input:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255), 0 0 0 4px rgb(38, 150, 255),
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255),
+    0 0 0 4px rgb(38, 150, 255),
     0 0 0 6px rgba(38, 150, 255, 0.06);
 }
 
 #display-limit-input.input-invalid {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255), 0 0 0 4px rgb(255, 0, 0),
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255),
+    0 0 0 4px rgb(255, 0, 0),
     0 0 0 6px rgba(255, 0, 0, 0.06);
 }
 
@@ -1433,7 +1473,9 @@ input:checked + .slider:before {
   height: 25px;
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+  transition:
+    background-color 0.3s ease-in-out,
+    color 0.3s ease-in-out;
 }
 .lightbox__close:hover {
   background-color: #dd5e5eda;
@@ -1800,8 +1842,7 @@ body.folded-view #toggle-fold-btn .icon-unfold {
 .sound-settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 130px);
-  grid-auto-rows: 90px;
-  row-gap: 3px;
+  grid-auto-rows: 78px;
   column-gap: 8px;
   align-items: center;
   justify-content: center;
@@ -1838,7 +1879,30 @@ body.folded-view #toggle-fold-btn .icon-unfold {
   border: none;
   border-radius: 4px;
 }
-.sound-settings-grid input[type="range"] {
+
+.sound-settings-grid .row-volume {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.sound-settings-grid .row-volume input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.sound-settings-grid .row-volume-value {
+  flex: 0 0 30px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+  color: #4f4f4f;
+}
+
+.sound-settings-grid > .row > input[type="range"] {
   width: 100%;
   margin-top: 5px;
   cursor: pointer;
@@ -2217,6 +2281,10 @@ body.folded-view #toggle-fold-btn .icon-unfold {
 }
 .logpower-badge-control-label {
   width: fit-content;
+}
+
+#subscription-gift-control-wrapper {
+  margin-right: auto;
 }
 
 /* 요약 카드 */

@@ -447,6 +447,22 @@ function makeLogPowerTitleSVG() {
             </svg>`;
 }
 
+function makeSubscriberGiftSVG() {
+  const uniqueId = Math.random().toString(36).slice(2);
+  const patternId = `pattern0_84_70_${uniqueId}`;
+  const imageId = `image0_84_70_${uniqueId}`;
+
+  return `<svg width="16" height="16" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <rect width="72" height="72" fill="url(#${patternId})"></rect>
+    <defs>
+      <pattern id="${patternId}" patternContentUnits="objectBoundingBox" width="1" height="1">
+        <use xlink:href="#${imageId}" transform="scale(0.0138889)"></use>
+      </pattern>
+      <image id="${imageId}" width="72" height="72" preserveAspectRatio="none" xlink:href="../svg_texture/subscriber_gift_texture.png"></image>
+    </defs>
+  </svg>`;
+}
+
 function makeLogPowerSVG() {
   const uniqueId = Math.random().toString(36).slice(2);
   const maskId = `mask0_4502_4387_${uniqueId}`;
@@ -487,6 +503,11 @@ function formatKoreanNumber(num) {
   }
   // 1천 미만
   return num.toLocaleString();
+}
+
+function makeSubscriptionGiftTierText(tierNo) {
+  const n = Number(tierNo);
+  return Number.isFinite(n) && n > 0 ? `티어 ${n}` : "구독";
 }
 
 let currentFilter = "ALL";
@@ -1252,6 +1273,10 @@ function initializeAllToggles() {
     { toggleId: "community-pause-toggle", storageKey: "isCommunityPaused" },
     { toggleId: "chzzk-lounge-pause-toggle", storageKey: "isLoungePaused" },
     { toggleId: "chzzk-banner-pause-toggle", storageKey: "isBannerPaused" },
+    {
+      toggleId: "subscription-gift-pause-toggle",
+      storageKey: "isSubscriptionGiftPaused",
+    },
     { toggleId: "live-keep-pause-toggle", storageKey: "isLiveKeepPaused" },
     {
       toggleId: "live-off-keep-pause-toggle",
@@ -1299,6 +1324,10 @@ function initializeAllToggles() {
     {
       toggleId: "chzzk-banner-keep-pause-toggle",
       storageKey: "isBannerKeepPaused",
+    },
+    {
+      toggleId: "subscription-gift-keep-pause-toggle",
+      storageKey: "isSubscriptionGiftKeepPaused",
     },
   ];
 
@@ -2567,6 +2596,9 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
   const markCommunityBtn = document.getElementById("mark-community-btn");
   const markLoungeBtn = document.getElementById("mark-lounge-btn");
   const markBannerBtn = document.getElementById("mark-banner-btn");
+  const markSubscriptionGiftBtn = document.getElementById(
+    "mark-subscription-gift-btn"
+  );
 
   const markAllReadBtn = document.getElementById("mark-all-read-btn");
   const markAllDeleteBtn = document.getElementById("mark-all-delete-btn");
@@ -2634,6 +2666,12 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
       filteredHistory = displayHistory.filter(
         (item) =>
           item.type === "PREDICTION_START" || item.type === "PREDICTION_END"
+      );
+    } else if (currentFilter === "SUBSCRIPTION_GIFT") {
+      filteredHistory = displayHistory.filter(
+        (item) =>
+          item.type === "SUBSCRIPTION_GIFT_RECEIVED" ||
+          item.type === "SUBSCRIPTION_GIFT_EXPIRING"
       );
     } else {
       filteredHistory = displayHistory.filter(
@@ -2712,7 +2750,7 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
   attachVirtualObserver(); // 스크롤 끝에 닿으면 다음 청크
 
   if (centerHeader) {
-    centerHeader.innerHTML = `최신 알림 <span>(${virtualState.filteredCounT}/${virtualState.displayLimit})</span>`;
+    centerHeader.innerHTML = `최신 알림 <span>(${virtualState.filteredCount}/${virtualState.displayLimit})</span>`;
   }
   // 옵션에 따라 스크롤을 초기화하도록 변경
   if (options.resetScroll) {
@@ -2828,6 +2866,12 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
           markBannerBtn.style.alignItems = "center";
           markBannerBtn.title = "배너";
           break;
+        case "SUBSCRIPTION_GIFT_RECEIVED":
+        case "SUBSCRIPTION_GIFT_EXPIRING":
+          markSubscriptionGiftBtn.style.display = "flex";
+          markSubscriptionGiftBtn.style.alignItems = "center";
+          markSubscriptionGiftBtn.title = "구독권 선물";
+          break;
       }
     });
   }
@@ -2920,6 +2964,13 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
       markAllDeleteBtn.innerHTML = `${bannerSVG}&nbsp;모두 삭제`;
       markAllReadBtn.innerHTML = `${bannerSVG}&nbsp;모두 읽음`;
       break;
+    case "SUBSCRIPTION_GIFT":
+      document
+        .getElementById("mark-subscription-gift-btn")
+        .classList.add("active-filter");
+      markAllDeleteBtn.innerHTML = `${makeSubscriberGiftSVG()}&nbsp;모두 삭제`;
+      markAllReadBtn.innerHTML = `${makeSubscriberGiftSVG()}&nbsp;모두 읽음`;
+      break;
   }
 
   // 4. 이벤트 리스너 설정
@@ -2970,6 +3021,12 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
       if (currentFilter === "PREDICTION") {
         return (
           item.type === "PREDICTION_START" || item.type === "PREDICTION_END"
+        );
+      }
+      if (currentFilter === "SUBSCRIPTION_GIFT") {
+        return (
+          item.type === "SUBSCRIPTION_GIFT_RECEIVED" ||
+          item.type === "SUBSCRIPTION_GIFT_EXPIRING"
         );
       }
       return item.type === currentFilter;
@@ -3101,6 +3158,11 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
 
   markBannerBtn.onclick = () => {
     currentFilter = "BANNER";
+    renderNotificationCenter({ resetScroll: true });
+  };
+
+  markSubscriptionGiftBtn.onclick = () => {
+    currentFilter = "SUBSCRIPTION_GIFT";
     renderNotificationCenter({ resetScroll: true });
   };
 
@@ -4051,6 +4113,12 @@ function createNotificationNode(
     contentTitle =
       item.channelName +
       `님이 19세 연령 제한을 ${item.adultMode ? "설정" : "해제"}했어요`;
+  } else if (item.type === "SUBSCRIPTION_GIFT_RECEIVED") {
+    contentType = makeSubscriberGiftSVG();
+    contentTitle = `${item.channelName} 채널 구독권을 선물 받았어요`;
+  } else if (item.type === "SUBSCRIPTION_GIFT_EXPIRING") {
+    contentType = makeSubscriberGiftSVG();
+    contentTitle = `${item.channelName} 채널 선물 구독권 만료 안내`;
   } else {
     contentType = bannerSVG; // "📢";
     contentTitle = "치지직 배너를 알려드려요";
@@ -5128,6 +5196,34 @@ function createNotificationNode(
     }
 
     messageDiv.appendChild(predictionWrapper);
+  } else if (
+    item.type === "SUBSCRIPTION_GIFT_RECEIVED" ||
+    item.type === "SUBSCRIPTION_GIFT_EXPIRING"
+  ) {
+    const wrap = document.createElement("div");
+    wrap.className = "subscription-gift-wrapper";
+
+    const main = document.createElement("div");
+    main.className = "subscription-gift-message";
+    main.textContent = item.content || "";
+    wrap.appendChild(main);
+
+    const meta = document.createElement("div");
+    meta.className = "subscription-gift-meta";
+
+    if (item.type === "SUBSCRIPTION_GIFT_RECEIVED") {
+      const month = Number(item.month || 0);
+      meta.textContent = `${makeSubscriptionGiftTierText(item.tierNo)}${
+        month > 0 ? ` / ${month}개월` : ""
+      }`;
+    } else {
+      meta.textContent = `만료일: ${formatFullTimestamp(
+        item.expireAt || item.nextPublishYmdt
+      )}`;
+    }
+
+    wrap.appendChild(meta);
+    messageDiv.appendChild(wrap);
   } else if (item.type === "LOUNGE") {
     const span = document.createElement("span");
     span.className = "lounge-board";
@@ -5387,6 +5483,7 @@ const SOUND_TYPES = [
   { key: "community", label: "커뮤니티" },
   { key: "lounge", label: "치지직 라운지" },
   { key: "banner", label: "배너" },
+  { key: "subscriptionGift", label: "구독권 선물" },
 ];
 
 const DEFAULT_SOUND_SETTINGS = {
@@ -5405,6 +5502,11 @@ const DEFAULT_SOUND_SETTINGS = {
   community: { enabled: true, file: "notification_11.mp3", volume: 0.4 },
   lounge: { enabled: true, file: "notification_17.mp3", volume: 0.3 },
   banner: { enabled: true, file: "notification_5.wav", volume: 0.35 },
+  subscriptionGift: {
+    enabled: true,
+    file: "notification_15.mp3",
+    volume: 0.35,
+  },
 };
 
 function clamp(v, min = 0, max = 1) {
@@ -5650,6 +5752,7 @@ async function buildRow({ key, label }, settings, soundOptions) {
 
   const volValue = document.createElement("span");
   volValue.textContent = `${vol.value * 100}%`;
+  volValue.className = "row-volume-value";
 
   function setVolTitle(el, container) {
     const v = clamp(el.value);
@@ -5686,13 +5789,18 @@ async function buildRow({ key, label }, settings, soundOptions) {
   });
 
   const div = document.createElement("div");
+  div.className = "row-sound-select";
   div.style.display = "flex";
   div.style.justifyContent = "center";
   div.style.width = "100%";
 
   div.append(sel, preview);
 
-  row.append(rowLabel, div, vol, volValue);
+  const volumeWrap = document.createElement("div");
+  volumeWrap.className = "row-volume";
+  volumeWrap.append(vol, volValue);
+
+  row.append(rowLabel, div, volumeWrap);
   return row;
 }
 

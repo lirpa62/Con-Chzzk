@@ -17,6 +17,10 @@ const CHECK_PARTY_INFO_API_URL_PREFIX =
   "https://api.chzzk.naver.com/service/v1/parties";
 const CHZZK_CHANNELS_API_URL_PREFIX =
   "https://api.chzzk.naver.com/service/v1/channels";
+const SUBSCRIPTION_GIFT_RECEIVE_HISTORY_API_URL =
+  "https://api.chzzk.naver.com/commercial/v1/gift/subscription/receive-history?page=0&size=100";
+const SUBSCRIPTION_CHANNELS_API_URL =
+  "https://api.chzzk.naver.com/commercial/v1/subscribe/channels";
 const CATEGORY_URL_PREFIX = "https://chzzk.naver.com/category";
 const LOG_POWER_BASE = CHZZK_CHANNELS_API_URL_PREFIX;
 const LOG_POWER_PREDICTION_API_PREFIX =
@@ -24,6 +28,7 @@ const LOG_POWER_PREDICTION_API_PREFIX =
 
 const CHECK_ALARM_NAME = "chzzkAllCheck";
 const DAILY_OPENING_ALARM = "daily-opening";
+const SUBSCRIPTION_GIFT_STATUS_KEY = "subscriptionGiftStatus";
 
 const BOOKMARK_LIVE_KEY = "bookmarkLive";
 const BOOKMARK_REFRESH_ALARM = "bookmarkLiveRefresh";
@@ -74,9 +79,8 @@ let _adaptiveLoaded = false;
 
 async function loadAdaptiveOnce() {
   if (_adaptiveLoaded) return;
-  const { [ADAPTIVE_KEY]: saved } = await chrome.storage.local.get(
-    ADAPTIVE_KEY
-  );
+  const { [ADAPTIVE_KEY]: saved } =
+    await chrome.storage.local.get(ADAPTIVE_KEY);
   const now = Date.now();
   if (saved?.version === 1) {
     // 병합
@@ -159,7 +163,7 @@ async function _saveJsonKey(key, value) {
 async function _recordClientClaims(
   channelId,
   succeededResults = [],
-  nowTs = Date.now()
+  nowTs = Date.now(),
 ) {
   try {
     const chId = String(channelId);
@@ -194,7 +198,7 @@ function _sumClaimsForChannelInRange(
   clientClaimsMap,
   channelId,
   sinceTs = 0,
-  toTs = Date.now()
+  toTs = Date.now(),
 ) {
   const recs = (clientClaimsMap && clientClaimsMap[channelId]) || [];
   let sum = 0;
@@ -237,7 +241,7 @@ async function computeExternalGainsForSummary({
           channelImageUrl: x.channelImageUrl || "",
           verifiedMark: !!x.verifiedMark,
         },
-      ])
+      ]),
     );
 
     const knownTotals = await _loadJsonKey(LOGPOWER_KNOWN_TOTALS_KEY, {});
@@ -275,7 +279,7 @@ async function computeExternalGainsForSummary({
               clientClaims,
               chId,
               sinceTs,
-              nowTs
+              nowTs,
             );
             delta -= claimedByThisClient;
           }
@@ -354,7 +358,7 @@ async function computeExternalGainsForSummary({
           clientClaims,
           chId,
           sinceTs,
-          nowTs
+          nowTs,
         );
         delta -= claimedByThisClient;
       }
@@ -488,7 +492,7 @@ async function ensureTodayOpeningSnapshotBG() {
           imageUrl: x.channelImageUrl || "",
           verifiedMark: !!x.verifiedMark,
         },
-      ])
+      ]),
     );
     const midnight = new Date(yyyy, today.getMonth(), today.getDate());
     const minutesLate = Math.round((today - midnight) / 60000);
@@ -584,7 +588,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     });
 
     const { logpowerSummaryLastRun = {} } = await chrome.storage.local.get(
-      "logpowerSummaryLastRun"
+      "logpowerSummaryLastRun",
     );
     if (Object.keys(logpowerSummaryLastRun).length === 0) {
       // 최초 켜짐 시점 이후만 캐치업하도록 베이스라인 기록
@@ -608,7 +612,7 @@ function atNextLocalTime(h = 0, m = 5) {
     h,
     m,
     0,
-    0
+    0,
   );
   if (t <= now) t.setDate(t.getDate() + 1);
   return t.getTime();
@@ -731,7 +735,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
               imageUrl: x.channelImageUrl || "",
               verifiedMark: !!x.verifiedMark,
             },
-          ])
+          ]),
         );
 
         const opening = {
@@ -742,7 +746,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
         await chrome.storage.local.set({ [openingKey]: opening });
         console.log(
-          `[Con:Chzzk] Created backup opening snapshot: ${openingKey}`
+          `[Con:Chzzk] Created backup opening snapshot: ${openingKey}`,
         );
 
         // B. 현재 보유량 전체를 '기타 획득'으로 간주하여 스냅샷 생성
@@ -761,7 +765,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
         await chrome.storage.local.set({ [extSnapKey]: initialExternalGains });
         console.log(
-          `[Con:Chzzk] Seeded initial external gains to ${extSnapKey}`
+          `[Con:Chzzk] Seeded initial external gains to ${extSnapKey}`,
         );
       }
     }
@@ -771,7 +775,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // '처음'일 때만 baseline 기록
   const { logpowerSummaryLastRun = {} } = await chrome.storage.local.get(
-    "logpowerSummaryLastRun"
+    "logpowerSummaryLastRun",
   );
   if (Object.keys(logpowerSummaryLastRun).length === 0) {
     await chrome.storage.local.set({
@@ -796,7 +800,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     if (migrated_v3) await chrome.storage.local.remove("migrated_v3");
 
     const { is_banner_id_migrated } = await chrome.storage.local.get(
-      "is_banner_id_migrated"
+      "is_banner_id_migrated",
     );
     if (is_banner_id_migrated)
       await chrome.storage.local.remove("is_banner_id_migrated");
@@ -837,7 +841,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     } catch (error) {
       console.warn(
         "Error occurred while clearing the previous timer.:",
-        error.message
+        error.message,
       );
     }
   }
@@ -958,6 +962,11 @@ const DEFAULT_SOUND_SETTINGS = {
   community: { enabled: true, file: "notification_11.mp3", volume: 0.4 },
   lounge: { enabled: true, file: "notification_17.mp3", volume: 0.3 },
   banner: { enabled: true, file: "notification_5.wav", volume: 0.35 },
+  subscriptionGift: {
+    enabled: true,
+    file: "notification_15.mp3",
+    volume: 0.35,
+  },
 };
 
 function clamp(v, min = 0, max = 1) {
@@ -967,9 +976,8 @@ function clamp(v, min = 0, max = 1) {
 // 전역(마스터) 기본값/로드
 const DEFAULT_SOUND_GLOBAL = { enabled: true, volume: 1.0 };
 async function getSoundGlobal() {
-  const { soundGlobal = DEFAULT_SOUND_GLOBAL } = await chrome.storage.local.get(
-    "soundGlobal"
-  );
+  const { soundGlobal = DEFAULT_SOUND_GLOBAL } =
+    await chrome.storage.local.get("soundGlobal");
   return {
     enabled: !!soundGlobal.enabled,
     volume: Math.min(2, Math.max(0, Number(soundGlobal.volume ?? 1))),
@@ -977,9 +985,8 @@ async function getSoundGlobal() {
 }
 
 async function getSoundSettings() {
-  const { soundSettings = {} } = await chrome.storage.local.get(
-    "soundSettings"
-  );
+  const { soundSettings = {} } =
+    await chrome.storage.local.get("soundSettings");
   // default와 병합
   const merged = { ...DEFAULT_SOUND_SETTINGS, ...soundSettings };
   // 각 키도 2단 병합(부분 저장 대비)
@@ -1063,7 +1070,7 @@ function normalizeBody(text) {
   // 3. 공백이 끼어 있는 두 줄 구분자도 두 줄로 변경
   const oneBlankLineNormalized = noZeroWidthSpaceText.replace(
     /\n[ \t]+\n/g,
-    "\n\n"
+    "\n\n",
   );
 
   // 3. 세 줄 이상의 연속된 줄바꿈을 두 줄로 축소
@@ -1094,14 +1101,14 @@ function makeExcerptWithAttaches(text) {
     paraCount > 6
       ? 280
       : paraCount > 5
-      ? 300
-      : paraCount > 4
-      ? 320
-      : paraCount > 3
-      ? 350
-      : paraCount > 2
-      ? 370
-      : 380;
+        ? 300
+        : paraCount > 4
+          ? 320
+          : paraCount > 3
+            ? 350
+            : paraCount > 2
+              ? 370
+              : 380;
   return collapsed.length > max
     ? collapsed.slice(0, max).replace(/\s+\S*$/, "") + " ...(더보기)"
     : collapsed;
@@ -1133,23 +1140,86 @@ function parseTimestampFormat(timestamp) {
   }
 }
 
+function parseChzzkYmdt(ymdt) {
+  if (!ymdt || typeof ymdt !== "string") return null;
+  const match = ymdt.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/,
+  );
+  if (!match) {
+    const fallback = new Date(ymdt);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+  const [, y, mo, d, h, mi, s] = match;
+  return new Date(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(s),
+  );
+}
+
+function normalizeStorageIdList(value, limit = 500) {
+  const list = Array.isArray(value) ? value : [];
+  return list.map(String).filter(Boolean).slice(-limit);
+}
+
+function calendarDayDiff(fromDate, toDate) {
+  const from = new Date(
+    fromDate.getFullYear(),
+    fromDate.getMonth(),
+    fromDate.getDate(),
+  );
+  const to = new Date(
+    toDate.getFullYear(),
+    toDate.getMonth(),
+    toDate.getDate(),
+  );
+  return Math.round((to - from) / 86400000);
+}
+
+function makeSubscriptionTierLabel(tierNo) {
+  const n = Number(tierNo);
+  return Number.isFinite(n) && n > 0 ? `티어${n}` : "구독";
+}
+
+function makeSubscriptionGiftSenderName(item) {
+  if (item?.isSenderAnonymous || !item?.senderNickname) {
+    return "익명의 후원자님";
+  }
+  return `${item.senderNickname}님`;
+}
+
+function makeSubscriptionGiftReceivedText(item) {
+  const senderName = makeSubscriptionGiftSenderName(item);
+  const tierLabel = makeSubscriptionTierLabel(item?.tierNo);
+  return `${senderName}이 보낸 ${item?.channelName || "알 수 없는"} 채널 ${tierLabel} 구독권을 선물 받았어요`;
+}
+
+function makeSubscriptionGiftExpiringText(item) {
+  const tierLabel = makeSubscriptionTierLabel(item?.tierNo);
+  const tierName = item?.tierName || item?.channelName || "선물 받은";
+  return `선물 받은 ${tierName}(${tierLabel}) 구독권이 만료 3일 전입니다`;
+}
+
 async function getBookmarks() {
   return new Promise((resolve) =>
     chrome.storage.local.get(["chzzkBookmarks"], (res) =>
-      resolve(res["chzzkBookmarks"] || [])
-    )
+      resolve(res["chzzkBookmarks"] || []),
+    ),
   );
 }
 
 async function setBookmarks(list) {
   return new Promise((resolve) =>
-    chrome.storage.local.set({ chzzkBookmarks: list }, () => resolve(true))
+    chrome.storage.local.set({ chzzkBookmarks: list }, () => resolve(true)),
   );
 }
 
 async function fetchLiveOpenMap(
   channelIds,
-  { batchSize = 20, delay = 150 } = {}
+  { batchSize = 20, delay = 150 } = {},
 ) {
   const result = {};
   for (let i = 0; i < channelIds.length; i += batchSize) {
@@ -1158,7 +1228,7 @@ async function fetchLiveOpenMap(
       fetch(`${LIVE_STATUS_API_PREFIX}/${id}/live-status`)
         .then((r) => r.json())
         .then((j) => ({ id, open: j?.content?.status === "OPEN" }))
-        .catch(() => ({ id, open: false }))
+        .catch(() => ({ id, open: false })),
     );
     const settled = await Promise.all(promises);
     for (const { id, open } of settled) result[id] = { live: !!open };
@@ -1201,7 +1271,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     yesterday.setDate(yesterday.getDate() - 1);
 
     runLogPowerSummaries(yesterday).catch((e) =>
-      console.warn("[logpower:summary] failed:", e)
+      console.warn("[logpower:summary] failed:", e),
     );
   }
   if (alarm.name === LOGPOWER_CATCHUP_ALARM) {
@@ -1296,7 +1366,7 @@ async function fetchWithRetry(
     retryOn,
     onRetry,
     maxRetryAfter = 60_000,
-  } = {}
+  } = {},
 ) {
   // 기본 retry 기준: 네트워크 에러/AbortError, 5xx, 408/425/429
   const defaultRetryOn = (attempt, err, res) => {
@@ -1314,7 +1384,7 @@ async function fetchWithRetry(
   const calculateWait = (attempt) => {
     const base = Math.min(
       maxDelay,
-      minDelay * Math.pow(backoffFactor, attempt)
+      minDelay * Math.pow(backoffFactor, attempt),
     );
     return jitter ? Math.floor(Math.random() * base) : base;
   };
@@ -1377,7 +1447,7 @@ async function fetchWithRetry(
       const wrapped = new Error(
         `fetchWithRetry failed after ${attempt + 1} attempts (${elapsed}ms): ${
           err?.message || err
-        }`
+        }`,
       );
       wrapped.cause = err;
       wrapped.url = url;
@@ -1404,7 +1474,7 @@ async function fetchLiveDetail(channelId) {
   const data = await response.json();
   if (data.code !== 200) {
     throw new Error(
-      `Live details fetch failed with code ${data.code}: ${data.message}`
+      `Live details fetch failed with code ${data.code}: ${data.message}`,
     );
   }
 
@@ -1430,7 +1500,7 @@ async function fetchPartyDetails(partyNo) {
   const data = await response.json();
   if (data.code !== 200) {
     throw new Error(
-      `Party details fetch failed with code ${data.code}: ${data.message}`
+      `Party details fetch failed with code ${data.code}: ${data.message}`,
     );
   }
   return data.content;
@@ -1481,7 +1551,7 @@ async function fetchAllPartyMembers(partyNo) {
     // 파티원 목록을 배열에 추가
     if (content.partyMemberLiveInfoList) {
       memberList.push(
-        ...content.partyMemberLiveInfoList.map(normalizeMemberInfo)
+        ...content.partyMemberLiveInfoList.map(normalizeMemberInfo),
       );
     }
 
@@ -1496,7 +1566,7 @@ async function fetchAllPartyMembers(partyNo) {
 // live URL에서 channelId 추출
 function extractChannelIdFromUrl(url) {
   const m = (url || "").match(
-    /chzzk\.naver\.com\/(?:live\/)?([a-f0-9]{32})(?:\/|$)/i
+    /chzzk\.naver\.com\/(?:live\/)?([a-f0-9]{32})(?:\/|$)/i,
   );
   return m ? m[1] : null;
 }
@@ -1520,7 +1590,7 @@ async function fetchClaimListMeta(channelId) {
   if (cached && now - cached.ts < 6 * 60 * 60 * 1000) return cached.byType;
 
   const res = await fetchWithRetry(
-    `${LOG_POWER_BASE}/${channelId}/log-power/claim-list`
+    `${LOG_POWER_BASE}/${channelId}/log-power/claim-list`,
   );
   if (!res.ok) throw new Error(`claim-list GET 실패: ${res.status}`);
   const json = await res.json();
@@ -1544,7 +1614,7 @@ async function resolveChannelName(channelId, followingList) {
   try {
     if (Array.isArray(followingList)) {
       const hit = followingList.find(
-        (it) => it?.channel?.channelId === channelId
+        (it) => it?.channel?.channelId === channelId,
       );
       if (hit?.channel?.channelName) return hit.channel.channelName;
     }
@@ -1564,7 +1634,7 @@ async function resolveChannelImageUrl(channelId, followingList) {
   try {
     if (Array.isArray(followingList)) {
       const hit = followingList.find(
-        (it) => it?.channel?.channelId === channelId
+        (it) => it?.channel?.channelId === channelId,
       );
       const img = hit?.channel?.channelImageUrl;
       if (img) return img;
@@ -1614,7 +1684,7 @@ function createLogPowerNotification(entry) {
       (c) =>
         `• ${c.displayTitle || c.claimType} (+${(
           c.amount ?? 0
-        ).toLocaleString()})`
+        ).toLocaleString()})`,
     )
     .join("\n");
   const message = `보유 통나무 파워: ${(
@@ -1668,13 +1738,13 @@ async function pushLogPowerHistory({
   };
 
   const { notificationHistory = [] } = await chrome.storage.local.get(
-    "notificationHistory"
+    "notificationHistory",
   );
   notificationHistory.unshift(entry);
   await chrome.storage.local.set({ notificationHistory });
   chrome.runtime.sendMessage(
     { type: "NOTIFICATION_HISTORY_UPDATED" },
-    () => void chrome.runtime.lastError
+    () => void chrome.runtime.lastError,
   );
 
   return entry;
@@ -1700,7 +1770,7 @@ function askContentToClaim(tabId, payload) {
     if (chrome.runtime.lastError) {
       console.debug(
         "[LOG_POWER] ping failed:",
-        chrome.runtime.lastError.message
+        chrome.runtime.lastError.message,
       );
       return;
     }
@@ -1713,7 +1783,7 @@ function askContentToClaim(tabId, payload) {
     chrome.tabs.sendMessage(
       tabId,
       { type: "LOG_POWER_CLAIMS_FOUND", ...payload },
-      () => void chrome.runtime.lastError // 에러 소비
+      () => void chrome.runtime.lastError, // 에러 소비
     );
   });
 }
@@ -1723,7 +1793,7 @@ async function checkAndClaimPowerForChannel(
   channelId,
   tabId,
   followingList = null,
-  { force = false } = {}
+  { force = false } = {},
 ) {
   try {
     // 1) GET
@@ -1766,7 +1836,7 @@ async function checkAndClaimPowerForChannel(
   } catch (e) {
     console.warn(
       `[log-power] Channel(${channelId}) check failed:`,
-      e?.message || e
+      e?.message || e,
     );
   }
 }
@@ -1820,11 +1890,11 @@ function periodBounds(kind, now = new Date()) {
 
     // 현지 시간 기준으로 시작일과 종료일 문자열 생성
     const startStr = `${start.getFullYear()}-${String(
-      start.getMonth() + 1
+      start.getMonth() + 1,
     ).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
     const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(
       2,
-      "0"
+      "0",
     )}-${String(end.getDate()).padStart(2, "0")}`;
 
     return {
@@ -1862,7 +1932,7 @@ const CATCHUP_HOURS = [9, 12, 15, 18, 21];
 function nextCatchupWhen(now = new Date()) {
   const slots = CATCHUP_HOURS.map(
     (h) =>
-      new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, 0, 0, 0)
+      new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, 0, 0, 0),
   );
   const nextToday = slots.find((t) => t.getTime() > now.getTime());
   if (nextToday) return nextToday.getTime();
@@ -1873,7 +1943,7 @@ function nextCatchupWhen(now = new Date()) {
     CATCHUP_HOURS[0],
     0,
     0,
-    0
+    0,
   );
   return t.getTime();
 }
@@ -1907,7 +1977,7 @@ function expectedSummaryAnchors(now = new Date()) {
 
 async function missingKinds(now = new Date()) {
   const { logpowerSummaryLastRun = {} } = await chrome.storage.local.get(
-    "logpowerSummaryLastRun"
+    "logpowerSummaryLastRun",
   );
   const { [LOGPOWER_CATCHUP_BASELINE_KEY]: baselineAt = 0 } =
     await chrome.storage.local.get(LOGPOWER_CATCHUP_BASELINE_KEY);
@@ -1943,7 +2013,7 @@ async function aggregateLogPowerBetween(start, end, aggOpts = {}) {
   const sTs = +start,
     eTs = +end;
   const { notificationHistory = [] } = await chrome.storage.local.get(
-    "notificationHistory"
+    "notificationHistory",
   );
 
   const WATCH_MINUTES_PER_HOUR = 12;
@@ -2106,7 +2176,7 @@ async function notifyLogPowerSummary(kind, agg, start, end, label) {
   if (!keepPaused) {
     // 팝업에서 볼 수 있도록 히스토리에도 적재
     const { notificationHistory = [] } = await chrome.storage.local.get(
-      "notificationHistory"
+      "notificationHistory",
     );
     notificationHistory.unshift({
       id: idBase,
@@ -2152,7 +2222,7 @@ async function loadDailyOpening(start) {
 async function fetchBalancesNow() {
   const res = await fetch(
     "https://api.chzzk.naver.com/service/v1/log-power/balances",
-    { credentials: "include" }
+    { credentials: "include" },
   );
   const json = await res.json();
   const arr = json?.content?.data || [];
@@ -2221,7 +2291,7 @@ function mergeExternalGains(accumulated, newItems) {
 async function runLogPowerSummaries(
   now = new Date(),
   forceKinds = null,
-  opts = {}
+  opts = {},
 ) {
   const toRun = forceKinds ? [...forceKinds] : ["daily"];
   const isSunday = now.getDay() === 0;
@@ -2239,7 +2309,7 @@ async function runLogPowerSummaries(
   }
 
   const { logpowerSummaryLastRun = {} } = await chrome.storage.local.get(
-    "logpowerSummaryLastRun"
+    "logpowerSummaryLastRun",
   );
 
   for (const kind of toRun) {
@@ -2263,7 +2333,7 @@ async function runLogPowerSummaries(
 
     let external = []; // 기타 획득 결과를 저장할 변수
     const { logpowerIncludeExternal = true } = await chrome.storage.local.get(
-      "logpowerIncludeExternal"
+      "logpowerIncludeExternal",
     );
 
     // if (logpowerIncludeExternal) {
@@ -2340,7 +2410,7 @@ async function runLogPowerSummaries(
       if (Array.isArray(external) && external.length > 0) {
         // 맵 생성: channelId -> externalGain
         const extMap = Object.fromEntries(
-          external.map((e) => [String(e.channelId), e])
+          external.map((e) => [String(e.channelId), e]),
         );
 
         // agg.channels 항목들에 externalGain 병합
@@ -2364,7 +2434,7 @@ async function runLogPowerSummaries(
         // 기타 획득이 agg에 포함되지 않은 신규 채널(agg에 없는 경우) 처리
         for (const [chId, e] of Object.entries(extMap)) {
           const found = agg.channels.find(
-            (c) => String(c.channelId) === String(e.channelId)
+            (c) => String(c.channelId) === String(e.channelId),
           );
           if (!found) {
             // 새 채널 항목을 추가 (팝업에 보이도록 최소 필드 채움)
@@ -2391,7 +2461,7 @@ async function runLogPowerSummaries(
         if (addedTotal > 0) {
           agg.total = Number(agg.total || 0) + addedTotal;
           agg.channels.sort(
-            (a, b) => Number(b.total || 0) - Number(a.total || 0)
+            (a, b) => Number(b.total || 0) - Number(a.total || 0),
           );
         }
       }
@@ -2473,11 +2543,11 @@ function makeBucketId(
   prevVal,
   curVal,
   now,
-  bucketMs
+  bucketMs,
 ) {
   const bucket = Math.floor(now / bucketMs);
   return `${prefix}-${channelId}-${openDate}-${norm(prevVal)}→${norm(
-    curVal
+    curVal,
   )}-b${bucket}`;
 }
 
@@ -2517,7 +2587,7 @@ function maybeEmitCategoryChange({
     prev,
     cur,
     now,
-    CATEGORY_BUCKET_MS
+    CATEGORY_BUCKET_MS,
   );
   if (existsOrDismissed(id, notificationHistory, dismissedSet)) return;
 
@@ -2529,7 +2599,7 @@ function maybeEmitCategoryChange({
     curCategoryUrl,
     liveContent,
     isPrime,
-    id
+    id,
   );
   notifications.push(obj);
   if (!isPaused && !isCategoryPaused) {
@@ -2568,7 +2638,7 @@ function maybeEmitTitleChange({
     prev,
     cur,
     now,
-    TITLE_BUCKET_MS
+    TITLE_BUCKET_MS,
   );
   if (existsOrDismissed(id, notificationHistory, dismissedSet)) return;
 
@@ -2579,7 +2649,7 @@ function maybeEmitTitleChange({
     liveContent,
     currentCategoryUrl,
     isPrime,
-    id
+    id,
   );
   notifications.push(obj);
   if (!isPaused && !isLiveTitlePaused) {
@@ -2622,7 +2692,7 @@ function maybeEmitComboChange({
   const id = `category-live-title-${
     channel.channelId
   }-${openDate}-${prevC}→${curC}-${prevT}→${curT}-b${Math.floor(
-    now / COMBO_BUCKET_MS
+    now / COMBO_BUCKET_MS,
   )}`;
   if (existsOrDismissed(id, notificationHistory, dismissedSet)) return true;
 
@@ -2636,7 +2706,7 @@ function maybeEmitComboChange({
     curCategoryUrl,
     liveContent,
     isPrime,
-    id
+    id,
   );
   notifications.push(obj);
 
@@ -2646,7 +2716,7 @@ function maybeEmitComboChange({
       prevCategory,
       curCategory,
       prevTitle,
-      curTitle
+      curTitle,
     );
     playSoundFor("combo");
   }
@@ -2747,6 +2817,7 @@ async function checkFollowedChannels() {
       "predictionStatus",
       "loungeStatus",
       "seenBanners",
+      SUBSCRIPTION_GIFT_STATUS_KEY,
       "notificationHistory",
       "dismissedNotificationIds",
       "isPaused",
@@ -2763,6 +2834,7 @@ async function checkFollowedChannels() {
       "isLoungePaused",
       "isBannerPaused",
       "isPartyPaused",
+      "isSubscriptionGiftPaused",
       "isLiveKeepPaused",
       "isLiveOffKeepPaused",
       "isCategoryKeepPaused",
@@ -2776,6 +2848,7 @@ async function checkFollowedChannels() {
       "isLoungeKeepPaused",
       "isBannerKeepPaused",
       "isPartyKeepPaused",
+      "isSubscriptionGiftKeepPaused",
     ]);
     const isPaused = prevState.isPaused || false;
 
@@ -2792,6 +2865,8 @@ async function checkFollowedChannels() {
     const isLoungePaused = prevState.isLoungePaused || false;
     const isBannerPaused = prevState.isBannerPaused || false;
     const isPartyPaused = prevState.isPartyPaused || false;
+    const isSubscriptionGiftPaused =
+      prevState.isSubscriptionGiftPaused || false;
 
     const isLiveKeepPaused = prevState.isLiveKeepPaused || false;
     const isLiveOffKeepPaused = prevState.isLiveOffKeepPaused || false;
@@ -2806,6 +2881,8 @@ async function checkFollowedChannels() {
     const isLoungeKeepPaused = prevState.isLoungeKeepPaused || false;
     const isBannerKeepPaused = prevState.isBannerKeepPaused || false;
     const isPartyKeepPaused = prevState.isPartyKeepPaused || false;
+    const isSubscriptionGiftKeepPaused =
+      prevState.isSubscriptionGiftKeepPaused || false;
 
     const dismissedSet = new Set(prevState.dismissedNotificationIds || []);
     for (const id of globalDismissedSet) dismissedSet.add(id);
@@ -2823,7 +2900,7 @@ async function checkFollowedChannels() {
         isPaused,
         isCommunityPaused,
         isCommunityKeepPaused,
-        prevState.notificationHistory
+        prevState.notificationHistory,
       );
     }
     if (plan.video) {
@@ -2835,7 +2912,7 @@ async function checkFollowedChannels() {
         dismissedSet,
         isPaused,
         isVideoPaused,
-        isVideoKeepPaused
+        isVideoKeepPaused,
       );
     }
     if (plan.lounge) {
@@ -2843,7 +2920,7 @@ async function checkFollowedChannels() {
         prevState.loungeStatus,
         isPaused,
         isLoungePaused,
-        isLoungeKeepPaused
+        isLoungeKeepPaused,
       );
     }
     if (plan.banner) {
@@ -2851,7 +2928,7 @@ async function checkFollowedChannels() {
         prevState.seenBanners,
         isPaused,
         isBannerPaused,
-        isBannerKeepPaused
+        isBannerKeepPaused,
       );
     }
 
@@ -2880,7 +2957,7 @@ async function checkFollowedChannels() {
       isWatchPartyKeepPaused,
       isDropsKeepPaused,
       prevState.notificationHistory,
-      dismissedSet
+      dismissedSet,
     );
 
     const partyResult = await checkPartyStatus(
@@ -2893,7 +2970,7 @@ async function checkFollowedChannels() {
       isPartyKeepPaused,
       notificationEnabledChannels,
       prevState.notificationHistory,
-      dismissedSet
+      dismissedSet,
     );
 
     const predictionResult = await checkPredictionStatus(
@@ -2904,15 +2981,23 @@ async function checkFollowedChannels() {
       isPredictionKeepPaused,
       notificationEnabledChannels,
       prevState.notificationHistory,
-      dismissedSet
+      dismissedSet,
     );
+
+    const subscriptionGiftResult = await checkSubscriptionGiftNotifications({
+      notificationHistory: prevState.notificationHistory,
+      dismissedSet,
+      isPaused,
+      isSubscriptionGiftPaused,
+      isSubscriptionGiftKeepPaused,
+    });
 
     try {
       await pollLogPowerOnActiveLiveTabs(followingList);
     } catch (e) {
       console.warn(
         "[log-power] poll in checkedFollowedChannels 실패:",
-        e?.message || e
+        e?.message || e,
       );
     }
 
@@ -2946,6 +3031,7 @@ async function checkFollowedChannels() {
       ...(videoResult.notifications ?? []),
       ...(loungeResult.notifications ?? []),
       ...(bannerResult.notifications ?? []),
+      ...(subscriptionGiftResult.notifications ?? []),
     ];
 
     // 2-2. 최종적으로 저장될 알림 내역을 결정
@@ -3015,7 +3101,7 @@ async function checkFollowedChannels() {
     const DISMISSED_LIMIT = 3000; // 최대 3000개의 삭제 기록만 유지
     if (dismissedList.length > DISMISSED_LIMIT) {
       dismissedList = dismissedList.slice(
-        dismissedList.length - DISMISSED_LIMIT
+        dismissedList.length - DISMISSED_LIMIT,
       );
     }
 
@@ -3030,6 +3116,7 @@ async function checkFollowedChannels() {
       partyStatus: partyResult.newStatus,
       partyDonationStatus: partyResult.newPartyDonationStatus,
       predictionStatus: predictionResult.newStatus,
+      [SUBSCRIPTION_GIFT_STATUS_KEY]: subscriptionGiftResult.newStatus,
       postStatus: postResult.newStatus,
       videoStatus: videoResult.newStatus,
       loungeStatus: loungeResult.newStatus,
@@ -3072,7 +3159,7 @@ async function fetchPredictionSummary(channelId) {
     // 404는 예측이 없는 정상이므로 null 반환
     if (data.code === 404) return null;
     throw new Error(
-      `Prediction summary fetch failed with code ${data.code}: ${data.message}`
+      `Prediction summary fetch failed with code ${data.code}: ${data.message}`,
     );
   }
   return data.content; // { channelId, predictionId, status, ... }
@@ -3092,7 +3179,7 @@ async function fetchPredictionDetails(channelId, predictionId) {
   const data = await response.json();
   if (data.code !== 200) {
     throw new Error(
-      `Prediction details fetch failed with code ${data.code}: ${data.message}`
+      `Prediction details fetch failed with code ${data.code}: ${data.message}`,
     );
   }
   const details = data.content;
@@ -3127,7 +3214,7 @@ async function checkLiveStatus(
   isWatchPartyKeepPaused,
   isDropsKeepPaused,
   notificationHistory = [],
-  dismissedSet = new Set()
+  dismissedSet = new Set(),
 ) {
   let _liveTotal = 0;
   let _liveErrors = 0;
@@ -3202,7 +3289,7 @@ async function checkLiveStatus(
       ) {
         const expectedNotificationId = `live-off-${channel.channelId}-${prevOpenDate}`;
         const notificationExists = notificationHistory.some(
-          (n) => n.id === expectedNotificationId
+          (n) => n.id === expectedNotificationId,
         );
 
         // 이 채널 정보로 LIVE_OFF 객체를 생성
@@ -3210,7 +3297,7 @@ async function checkLiveStatus(
 
         const startMs = Date.parse(currentOpenDate) || Date.now();
         const inferredCloseTimestamp = new Date(
-          Math.min(Date.now(), startMs - 1000)
+          Math.min(Date.now(), startMs - 1000),
         ).toISOString();
 
         if (!notificationExists && !dismissedSet.has(expectedNotificationId)) {
@@ -3218,8 +3305,8 @@ async function checkLiveStatus(
             createLiveOffObject(
               channelInfo,
               inferredCloseTimestamp,
-              prevOpenDate
-            )
+              prevOpenDate,
+            ),
           );
           if (!isPaused && !isLivePaused && !isLiveOffPaused) {
             // Promise를 사용하여 '종료' 알림이 먼저 생성되도록 보장
@@ -3227,7 +3314,7 @@ async function checkLiveStatus(
               chrome.notifications.create(
                 `live-off-${channel.channelId}-${prevOpenDate}`, // ID 일치
                 createLiveOffNotification(channel, inferredCloseTimestamp),
-                () => resolve()
+                () => resolve(),
               );
               playSoundFor("live");
             });
@@ -3236,7 +3323,7 @@ async function checkLiveStatus(
             setTimeout(() => {
               chrome.notifications.create(
                 `live-${channel.channelId}-${currentOpenDate}`,
-                createLiveNotification(channel, liveContent, isPrime)
+                createLiveNotification(channel, liveContent, isPrime),
               );
 
               playSoundFor("live");
@@ -3249,7 +3336,7 @@ async function checkLiveStatus(
       if (isNotificationEnabled && !isLiveKeepPaused) {
         const expectedNotificationId = `live-${channelId}-${currentOpenDate}`;
         const notificationExists = notificationHistory.some(
-          (n) => n.id === expectedNotificationId
+          (n) => n.id === expectedNotificationId,
         );
 
         if (!notificationExists && !dismissedSet.has(expectedNotificationId)) {
@@ -3258,7 +3345,7 @@ async function checkLiveStatus(
             // "재시작"이 아닐 때만 즉시 알림
             chrome.notifications.create(
               `live-${channel.channelId}-${currentOpenDate}`,
-              createLiveNotification(channel, liveContent, isPrime)
+              createLiveNotification(channel, liveContent, isPrime),
             );
             playSoundFor("live");
           }
@@ -3357,7 +3444,7 @@ async function checkLiveStatus(
               currentAdultMode,
               liveContent,
               currentCategoryUrl,
-              isPrime
+              isPrime,
             );
             notifications.push(notificationObject);
 
@@ -3365,7 +3452,7 @@ async function checkLiveStatus(
               createLiveAdultChangeNotification(
                 notificationObject,
                 currentAdultMode,
-                liveContent
+                liveContent,
               );
               playSoundFor("restrict");
             }
@@ -3376,7 +3463,7 @@ async function checkLiveStatus(
               channel,
               liveContent,
               currentCategoryUrl,
-              isPrime
+              isPrime,
             );
             notifications.push(notificationObject);
 
@@ -3391,7 +3478,7 @@ async function checkLiveStatus(
               channel,
               liveContent,
               currentCategoryUrl,
-              isPrime
+              isPrime,
             );
             notifications.push(notificationObject);
 
@@ -3448,20 +3535,20 @@ async function checkLiveStatus(
         _liveErrors += 1;
         console.error(
           "Error in a specific channel during batch processing:",
-          result.reason
+          result.reason,
         );
       }
     });
   }
 
   const liveChannelIds = new Set(
-    liveChannels.map((item) => item.channel.channelId)
+    liveChannels.map((item) => item.channel.channelId),
   );
 
   //방송 종료 감지 로직 시작
   const suspectChannelIds = Object.keys(prevLiveStatus).filter(
     (channelId) =>
-      prevLiveStatus[channelId].live && !liveChannelIds.has(channelId)
+      prevLiveStatus[channelId].live && !liveChannelIds.has(channelId),
   );
 
   for (const channelId of suspectChannelIds) {
@@ -3484,7 +3571,7 @@ async function checkLiveStatus(
     try {
       const res = await fetchWithRetry(
         `${LIVE_STATUS_API_PREFIX}/${channelId}/live-status`,
-        { maxRetryAfter: 120_000 }
+        { maxRetryAfter: 120_000 },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const liveStatusData = await res.json();
@@ -3499,7 +3586,7 @@ async function checkLiveStatus(
       // 네트워크/일시 글리치에 의한 오탐 방지를 위해 실패 시 종료 처리하지 않고 skip
       console.warn(
         `[${channelId}] Verification failed, Skip the final judgment`,
-        e
+        e,
       );
       continue;
     }
@@ -3523,7 +3610,7 @@ async function checkLiveStatus(
 
     // 전체 팔로우 목록에서 해당 채널 정보 찾기
     const channelInfo = followingList.find(
-      (item) => item.channel.channelId === channelId
+      (item) => item.channel.channelId === channelId,
     )?.channel;
 
     if (
@@ -3536,12 +3623,12 @@ async function checkLiveStatus(
       // prevOpenDate가 있을 경우에만 알림을 생성(안전장치)
       if (prevOpenDate) {
         notifications.push(
-          createLiveOffObject(channelInfo, closeDate, prevOpenDate)
+          createLiveOffObject(channelInfo, closeDate, prevOpenDate),
         );
         if (!isPaused && !isLiveOffPaused) {
           chrome.notifications.create(
             `live-off-${channelId}-${prevOpenDate}`,
-            createLiveOffNotification(channelInfo, closeDate)
+            createLiveOffNotification(channelInfo, closeDate),
           );
           playSoundFor("live");
         }
@@ -3590,7 +3677,7 @@ async function checkPredictionStatus(
   isPredictionKeepPaused,
   notificationEnabledChannels,
   notificationHistory = [],
-  dismissedSet = new Set()
+  dismissedSet = new Set(),
 ) {
   const newPredictionStatus = { ...prevPredictionStatus };
   const notifications = [];
@@ -3602,7 +3689,7 @@ async function checkPredictionStatus(
 
   // 알림 켠 채널만 필터링
   const channelsToCheck = followingList.filter((item) =>
-    notificationEnabledChannels.has(item.channel.channelId)
+    notificationEnabledChannels.has(item.channel.channelId),
   );
 
   // 배치 단위로 끊어서 병렬 처리
@@ -3661,7 +3748,7 @@ async function checkPredictionStatus(
 
           // 이미 종료된 상태(COMPLETED/CANCELLED)로 인지하고 있고, ID가 같다면 API 2 호출 생략
           const isFinishedState = ["COMPLETED", "CANCELLED"].includes(
-            prevState.lastNotifiedStatus
+            prevState.lastNotifiedStatus,
           );
           if (
             prevState.predictionId === summaryPredictionId &&
@@ -3676,7 +3763,7 @@ async function checkPredictionStatus(
             // API 2: 상세 정보 호출
             details = await fetchPredictionDetails(
               channelId,
-              summaryPredictionId
+              summaryPredictionId,
             );
             detailsPredictionId = details?.predictionId;
             detailsStatus = (details?.status || "UNKNOWN").toUpperCase();
@@ -3689,11 +3776,11 @@ async function checkPredictionStatus(
               // [START] 새로운 예측 시작
               const notificationObject = createPredictionStartObject(
                 channel,
-                details
+                details,
               );
               if (
                 !notificationHistory.some(
-                  (n) => n.id === notificationObject.id
+                  (n) => n.id === notificationObject.id,
                 ) &&
                 !dismissedSet.has(notificationObject.id) &&
                 !isPredictionKeepPaused
@@ -3702,7 +3789,7 @@ async function checkPredictionStatus(
                 if (!isPaused && !isPredictionPaused) {
                   chrome.notifications.create(
                     notificationObject.id,
-                    createPredictionStartNotification(channel, details)
+                    createPredictionStartNotification(channel, details),
                   );
                   playSoundFor("prediction");
                 }
@@ -3742,11 +3829,11 @@ async function checkPredictionStatus(
               // 취소된 경우 타이머 등 UI 처리를 위해 END 객체 생성 (혹은 별도 로직)
               const notificationObject = createPredictionEndObject(
                 channel,
-                details
+                details,
               );
               if (
                 !notificationHistory.some(
-                  (n) => n.id === notificationObject.id
+                  (n) => n.id === notificationObject.id,
                 ) &&
                 !dismissedSet.has(notificationObject.id) &&
                 !isPredictionKeepPaused
@@ -3756,7 +3843,7 @@ async function checkPredictionStatus(
                   // 취소됨일 경우 메시지를 다르게 줄 수 있음 (여기서는 END 노티 사용)
                   chrome.notifications.create(
                     notificationObject.id,
-                    createPredictionEndNotification(channel, details)
+                    createPredictionEndNotification(channel, details),
                   );
                   playSoundFor("prediction");
                 }
@@ -3795,11 +3882,11 @@ async function checkPredictionStatus(
               // 중간 과정을 놓쳤으므로 START 알림을 생성하고 상태를 EXPIRED로 둠
               const notificationObject = createPredictionStartObject(
                 channel,
-                details
+                details,
               );
               if (
                 !notificationHistory.some(
-                  (n) => n.id === notificationObject.id
+                  (n) => n.id === notificationObject.id,
                 ) &&
                 !dismissedSet.has(notificationObject.id) &&
                 !isPredictionKeepPaused
@@ -3828,7 +3915,7 @@ async function checkPredictionStatus(
               // API 2로 최종 상태 확인 시도
               details = await fetchPredictionDetails(
                 channelId,
-                prevState.predictionId
+                prevState.predictionId,
               );
               detailsStatus = (details?.status || "UNKNOWN").toUpperCase();
 
@@ -3839,11 +3926,11 @@ async function checkPredictionStatus(
                 // 뒤늦게 종료/취소 확인 -> 알림 발송
                 const notificationObject = createPredictionEndObject(
                   channel,
-                  details
+                  details,
                 );
                 if (
                   !notificationHistory.some(
-                    (n) => n.id === notificationObject.id
+                    (n) => n.id === notificationObject.id,
                   ) &&
                   !dismissedSet.has(notificationObject.id) &&
                   !isPredictionKeepPaused
@@ -3852,7 +3939,7 @@ async function checkPredictionStatus(
                   if (!isPaused && !isPredictionPaused) {
                     chrome.notifications.create(
                       notificationObject.id,
-                      createPredictionEndNotification(channel, details)
+                      createPredictionEndNotification(channel, details),
                     );
                     playSoundFor("prediction");
                   }
@@ -3939,7 +4026,7 @@ async function checkPredictionStatus(
         }
 
         return channelResult;
-      })
+      }),
     );
 
     // 배치 처리 결과를 전체 결과에 병합
@@ -3976,7 +4063,7 @@ async function checkPartyStatus(
   isPartyKeepPaused,
   notificationEnabledChannels,
   notificationHistory = [],
-  dismissedSet = new Set()
+  dismissedSet = new Set(),
 ) {
   const newPartyStatus = { ...prevPartyStatus };
   const newPartyDonationStatus = { ...prevPartyDonationStatus };
@@ -4002,7 +4089,7 @@ async function checkPartyStatus(
         ...prevPartyData,
         partyNo: currentPartyNo,
         partyName: currentPartyNo
-          ? currentParty.partyName ?? prevPartyData.partyName ?? null
+          ? (currentParty.partyName ?? prevPartyData.partyName ?? null)
           : null,
         notificationEnabled: false,
         updatedAt: Date.now(), // 최근성은 유지(팝업에서 '종료'로 오인 방지)
@@ -4050,7 +4137,7 @@ async function checkPartyStatus(
         } else {
           try {
             const res = await fetchWithRetry(
-              `${CHZZK_CHANNELS_API_URL_PREFIX}/${channelId}/party-donation-info`
+              `${CHZZK_CHANNELS_API_URL_PREFIX}/${channelId}/party-donation-info`,
             );
             donationInfoCache = (await res.json()).content ?? null;
             donationInfoTtlMap.set(channelId, { t: now, v: donationInfoCache });
@@ -4097,12 +4184,12 @@ async function checkPartyStatus(
               finalDistributionMode,
               finalDistributionList,
               memberCount,
-              accumulatedMembersForDonation
+              accumulatedMembersForDonation,
             );
 
             if (
               !notificationHistory.some(
-                (n) => n.id === notificationObject.id
+                (n) => n.id === notificationObject.id,
               ) &&
               !emittedDonationEndIds.has(notificationObject.id)
             ) {
@@ -4130,7 +4217,7 @@ async function checkPartyStatus(
           const expectedNotificationId = `party-${channelId}-${currentPartyNo}`;
           // 해당 알림이 이미 내역에 있는지 확인
           const notificationExists = notificationHistory.some(
-            (n) => n.id === expectedNotificationId
+            (n) => n.id === expectedNotificationId,
           );
 
           if (
@@ -4184,7 +4271,7 @@ async function checkPartyStatus(
                 } else {
                   // 멤버/요약 모두 실패했을 때만 경고 로그
                   console.warn(
-                    "Failed to retrieve party information(Both members and summary failed) - Skip Notification"
+                    "Failed to retrieve party information(Both members and summary failed) - Skip Notification",
                   );
                 }
               }
@@ -4198,7 +4285,7 @@ async function checkPartyStatus(
                   cached.partyMembersLiveInfoData,
                   cached.partySummaryContent,
                   cached.partyMembersLiveInfoData.members ??
-                    prevAccumulatedMembers
+                    prevAccumulatedMembers,
                 );
                 notifications.push(notificationObject);
                 if (!isPaused && !isPartyPaused) {
@@ -4209,7 +4296,7 @@ async function checkPartyStatus(
             } catch (e) {
               console.error(
                 `[${channelId}] Failed to retrieve party information:`,
-                e
+                e,
               );
             }
           }
@@ -4258,7 +4345,7 @@ async function checkPartyStatus(
                 partyCache.set(currentPartyNo, cached);
               } else {
                 console.warn(
-                  "파티 정보 조회 실패(멤버/요약 모두 실패) - 알림 생략"
+                  "파티 정보 조회 실패(멤버/요약 모두 실패) - 알림 생략",
                 );
               }
             }
@@ -4289,7 +4376,7 @@ async function checkPartyStatus(
                 channel,
                 partyInfoForStatus, // 멤버 실패 시 null일 수 있음 → createPartyStartObject가 null 허용해야 함
                 partySummaryForStatus, // 최소 partyName/partyNo만 있어도 됨
-                seedMembers
+                seedMembers,
               );
               notifications.push(notificationObject);
               if (!isPaused && !isPartyPaused) {
@@ -4300,7 +4387,10 @@ async function checkPartyStatus(
 
             // 새로운 누적 멤버 목록을 생성
             const accumulatedMembersMap = new Map(
-              prevAccumulatedMembers.map((member) => [member.channelId, member])
+              prevAccumulatedMembers.map((member) => [
+                member.channelId,
+                member,
+              ]),
             );
             // 현재 라이브 중인 멤버들을 순회하며, 기존 누적 목록에 없으면 추가
             (partyInfoForStatus?.members || []).forEach((liveMember) => {
@@ -4315,12 +4405,12 @@ async function checkPartyStatus(
             ) {
               accumulatedMembersMap.set(
                 partyInfoForStatus.host.channelId,
-                partyInfoForStatus.host
+                partyInfoForStatus.host,
               );
             }
 
             const newAccumulatedMembers = Array.from(
-              accumulatedMembersMap.values()
+              accumulatedMembersMap.values(),
             );
 
             // 현재와 이전의 라이브 멤버 ID 목록을 추출하고 정렬
@@ -4341,7 +4431,7 @@ async function checkPartyStatus(
               // 변경이 감지되면 기존 알림 내역을 찾아 업데이트하도록 요청
               const notificationId = `party-${channelId}-${currentPartyNo}`;
               const existsInHistory = notificationHistory.some(
-                (n) => n.id === notificationId
+                (n) => n.id === notificationId,
               );
 
               if (existsInHistory) {
@@ -4358,7 +4448,7 @@ async function checkPartyStatus(
           } catch (e) {
             console.error(
               `[${channelId}] Failed to update party member information:`,
-              e
+              e,
             );
           }
         }
@@ -4400,12 +4490,12 @@ async function checkPartyStatus(
                 finalDistributionMode,
                 finalDistributionList,
                 memberCount,
-                accumulatedMembersForDonation
+                accumulatedMembersForDonation,
               );
 
               if (
                 !notificationHistory.some(
-                  (n) => n.id === notificationObject.id
+                  (n) => n.id === notificationObject.id,
                 ) &&
                 !emittedDonationEndIds.has(notificationObject.id)
               ) {
@@ -4478,14 +4568,14 @@ async function checkPartyStatus(
             const expectedDonationStartId = `donation-start-${channelId}-${currentPartyNo}-${currentDonationSettingNo}`;
             const donationStartExists =
               notificationHistory.some(
-                (n) => n.id === expectedDonationStartId
+                (n) => n.id === expectedDonationStartId,
               ) || dismissedSet.has(expectedDonationStartId);
 
             if (!donationStartExists && !isPartyKeepPaused) {
               const notificationObject = createDonationStartObject(
                 channel,
                 donationInfoCache,
-                partyDetails
+                partyDetails,
               );
               notifications.push(notificationObject);
               if (!isPaused && !isPartyPaused) {
@@ -4525,12 +4615,12 @@ async function checkPartyStatus(
                 finalDistributionMode,
                 finalDistributionList,
                 memberCount,
-                accumulatedMembersForDonation
+                accumulatedMembersForDonation,
               );
 
               if (
                 !notificationHistory.some(
-                  (n) => n.id === donationEndNotificationObject.id
+                  (n) => n.id === donationEndNotificationObject.id,
                 ) &&
                 !emittedDonationEndIds.has(donationEndNotificationObject.id)
               ) {
@@ -4577,19 +4667,19 @@ async function checkPartyStatus(
             const expectedDonationStartId = `donation-start-${channelId}-${currentPartyNo}-${currentDonationSettingNo}`;
             const donationStartExists =
               notificationHistory.some(
-                (n) => n.id === expectedDonationStartId
+                (n) => n.id === expectedDonationStartId,
               ) || dismissedSet.has(expectedDonationStartId);
 
             if (!donationStartExists && !isPartyKeepPaused) {
               const donationStartNotificationObject = createDonationStartObject(
                 channel,
                 donationInfoCache,
-                partyDetails
+                partyDetails,
               );
               notifications.push(donationStartNotificationObject);
               if (!isPaused && !isPartyPaused) {
                 createDonationStartNotification(
-                  donationStartNotificationObject
+                  donationStartNotificationObject,
                 );
                 playSoundFor("donation");
               }
@@ -4680,12 +4770,12 @@ async function checkPartyStatus(
               prevDonation.distributionMode,
               prevDonation.distributionList,
               prevPartyStatus[channelId]?.memberCount || 0,
-              prevPartyStatus[channelId]?.accumulatedMembers || []
+              prevPartyStatus[channelId]?.accumulatedMembers || [],
             );
 
             if (
               !notificationHistory.some(
-                (n) => n.id === notificationObject.id
+                (n) => n.id === notificationObject.id,
               ) &&
               !emittedDonationEndIds.has(notificationObject.id)
             ) {
@@ -4700,7 +4790,7 @@ async function checkPartyStatus(
         } catch (e) {
           console.warn(
             `[${channelId}] prevParty 분기에서 도네 종료 보정 실패:`,
-            e
+            e,
           );
         }
 
@@ -4729,17 +4819,17 @@ async function checkPartyStatus(
                 channel,
                 baseInfo,
                 prevAccumulatedMembers,
-                prevMemberCount
+                prevMemberCount,
               )
             : createPartyEndObject(
                 channel,
                 baseInfo,
                 prevAccumulatedMembers,
-                prevMemberCount
+                prevMemberCount,
               );
 
           const already = notificationHistory.some(
-            (n) => n.id === notificationObject.id
+            (n) => n.id === notificationObject.id,
           );
           if (!already) {
             notifications.push(notificationObject);
@@ -4780,7 +4870,7 @@ async function checkPartyStatus(
           const isNewParty = currentPartyNo && currentPartyNo !== prevPartyNo;
           const base = isNewParty ? [] : prevAccumulatedMembers || [];
           const accumulatedMap = new Map(
-            base.map((member) => [member.channelId, member])
+            base.map((member) => [member.channelId, member]),
           );
 
           (info.members || []).forEach((member) => {
@@ -4799,13 +4889,13 @@ async function checkPartyStatus(
       newPartyStatus[channelId] = {
         partyNo: currentPartyNo,
         partyName: currentPartyNo
-          ? partySummaryForStatus?.partyName ?? prevPartyName
-          : prevPartyName ?? null,
+          ? (partySummaryForStatus?.partyName ?? prevPartyName)
+          : (prevPartyName ?? null),
         memberCount: finalMemberCount,
         partyMembers: currentPartyNo ? finalLiveMembers : prevPartyMembers,
         accumulatedMembers: currentPartyNo
           ? finalAccumulatedMembers
-          : prevAccumulatedMembers ?? [],
+          : (prevAccumulatedMembers ?? []),
         notificationEnabled: isNotificationEnabled,
         updatedAt: Date.now(),
       };
@@ -4839,7 +4929,7 @@ async function checkCommunityPosts(
   isPaused,
   isCommunityPaused,
   isCommunityKeepPaused,
-  notificationHistory = []
+  notificationHistory = [],
 ) {
   const newPostStatus = { ...prevPostStatus };
   const notifications = [];
@@ -4854,7 +4944,7 @@ async function checkCommunityPosts(
       getLatestCommunityPost(item.channel.channelId).then((latestPost) => ({
         channel: item.channel,
         latestPost,
-      }))
+      })),
     );
 
   const results = await Promise.all(postCheckPromises);
@@ -4910,12 +5000,12 @@ async function checkCommunityPosts(
         // notificationHistory에서 해당 글을 찾아 content, attaches를 업데이트
         const historyItem = notificationHistory.find(
           (item) =>
-            item.type === "POST" && item.commentId === latestPost.commentId
+            item.type === "POST" && item.commentId === latestPost.commentId,
         );
         if (historyItem) {
           const newAttachLayout = calculateAttachLayout(
             latestPost.content,
-            latestPost.attaches
+            latestPost.attaches,
           );
 
           postUpdates.push({
@@ -4925,7 +5015,7 @@ async function checkCommunityPosts(
               excerpt: decodeHtmlEntities(
                 latestPost.attaches && latestPost.attaches.length > 0
                   ? makeExcerptWithAttaches(latestPost.content)
-                  : makeExcerpt(latestPost.content)
+                  : makeExcerpt(latestPost.content),
               ),
               attaches: latestPost.attaches,
               attachLayout: newAttachLayout,
@@ -4942,7 +5032,7 @@ async function checkCommunityPosts(
         excerpt: decodeHtmlEntities(
           latestPost.attaches && latestPost.attaches.length > 0
             ? makeExcerptWithAttaches(latestPost.content)
-            : makeExcerpt(latestPost.content)
+            : makeExcerpt(latestPost.content),
         ),
         attaches: latestPost.attaches,
       };
@@ -4974,13 +5064,13 @@ async function checkLoungePosts(
   prevPostStatus = {},
   isPaused,
   isLoungePaused,
-  isLoungeKeepPaused
+  isLoungeKeepPaused,
 ) {
   const newPostStatus = { ...prevPostStatus };
   const notifications = [];
   const boardNumbers = [1, 2, 17, 3, 16]; // 공지사항, 업데이트, 같이보기, 이벤트, 콘텐츠 제작지원
   const postCheckPromises = boardNumbers.map((boardNumber) =>
-    getLatestLoungePost(boardNumber).then((latestPost) => ({ latestPost }))
+    getLatestLoungePost(boardNumber).then((latestPost) => ({ latestPost })),
   );
 
   const results = await Promise.all(postCheckPromises);
@@ -5019,7 +5109,7 @@ async function checkUploadedVideos(
   dismissedSet = new Set(),
   isPaused,
   isVideoPaused,
-  isVideoKeepPaused
+  isVideoKeepPaused,
 ) {
   let _videoTotal = 0,
     _videoErrors = 0;
@@ -5036,7 +5126,7 @@ async function checkUploadedVideos(
   try {
     // 알림이 켜진 채널만 대상으로 삼음
     const channelsToCheck = followingList.filter((item) =>
-      notificationEnabledChannels.has(item.channel.channelId)
+      notificationEnabledChannels.has(item.channel.channelId),
     );
 
     // 삭제 감지: 알림 내역에 있지만 현재 API 목록에 없는 비디오
@@ -5063,14 +5153,14 @@ async function checkUploadedVideos(
           // 채널별 비디오 API를 호출
           const response = await fetchWithRetry(
             `${CHZZK_CHANNELS_API_URL_PREFIX}/${channelId}/videos?sortType=LATEST&page=0`,
-            { maxRetryAfter: 180_000 }
+            { maxRetryAfter: 180_000 },
           );
           const data = await response.json();
 
           if (data.code === 200 && data.content?.data) {
             const videosFromAPI = data.content.data;
             const currentVideoNos = new Set(
-              videosFromAPI.map((v) => v.videoNo)
+              videosFromAPI.map((v) => v.videoNo),
             );
 
             // 삭제 감지: 알림 내역에 있지만 현재 API 목록에 없는 비디오
@@ -5094,7 +5184,7 @@ async function checkUploadedVideos(
             const lastSeenVideoNo = lastSeenStatus.videoNo || 0;
 
             const { firstInstallCutoffMs } = await chrome.storage.local.get(
-              "firstInstallCutoffMs"
+              "firstInstallCutoffMs",
             );
             let cutoffMs = firstInstallCutoffMs;
             if (!cutoffMs) {
@@ -5156,7 +5246,7 @@ async function checkUploadedVideos(
                   (v) =>
                     v.videoNo > lastSeenVideoNo &&
                     !newVideos.some((nv) => nv.videoNo === v.videoNo) &&
-                    getPublishedMs(v) >= cutoffMs
+                    getPublishedMs(v) >= cutoffMs,
                 )
                 .sort((a, b) => a.videoNo - b.videoNo);
 
@@ -5181,7 +5271,7 @@ async function checkUploadedVideos(
             if (!isVideoKeepPaused) {
               if (videosFromAPI.length > 0) {
                 const latestVideoNo = Math.max(
-                  ...videosFromAPI.map((v) => v.videoNo)
+                  ...videosFromAPI.map((v) => v.videoNo),
                 );
                 if (latestVideoNo > lastSeenVideoNo) {
                   newVideoStatus[channelId] = {
@@ -5217,7 +5307,7 @@ async function checkUploadedVideos(
               const { videoNo, videoTitle, thumbnailImageUrl } = video;
 
               const historyItem = notificationHistory.find(
-                (hItem) => hItem.type === "VIDEO" && hItem.videoNo === videoNo
+                (hItem) => hItem.type === "VIDEO" && hItem.videoNo === videoNo,
               );
 
               if (historyItem) {
@@ -5344,11 +5434,11 @@ function decodeHtmlEntities(str) {
   if (!str) return str;
   // 16진수 숫자 엔티티: &#x1f3ac;
   str = str.replace(/&#x([\da-fA-F]+);/g, (_, hex) =>
-    String.fromCodePoint(parseInt(hex, 16))
+    String.fromCodePoint(parseInt(hex, 16)),
   );
   // 10진수 숫자 엔티티: &#127916;
   str = str.replace(/&#(\d+);/g, (_, dec) =>
-    String.fromCodePoint(parseInt(dec, 10))
+    String.fromCodePoint(parseInt(dec, 10)),
   );
   // 몇 가지 기본 이름 엔티티
   return str
@@ -5405,7 +5495,7 @@ function createLiveNotification(channel, liveInfo, isPrime) {
 function createCategoryChangeNotification(
   notificationObject,
   oldCategory,
-  newCategory
+  newCategory,
 ) {
   const {
     id,
@@ -5437,7 +5527,7 @@ function createCategoryChangeNotification(
 function createLiveTitleChangeNotification(
   notificationObject,
   oldLiveTitle,
-  newLiveTitle
+  newLiveTitle,
 ) {
   const { id, channelName, channelImageUrl } = notificationObject;
 
@@ -5459,7 +5549,7 @@ function createCategoryAndLiveTitleChangeNotification(
   oldCategory,
   newCategory,
   oldLiveTitle,
-  newLiveTitle
+  newLiveTitle,
 ) {
   const {
     id,
@@ -5515,7 +5605,7 @@ function createCategoryAndLiveTitleChangeNotification(
 function createLiveAdultChangeNotification(
   notificationObject,
   currentAdultMode,
-  liveInfo
+  liveInfo,
 ) {
   const { id, channelName, channelImageUrl } = notificationObject;
   const { liveTitle, liveCategoryValue } = liveInfo;
@@ -5532,7 +5622,7 @@ function createLiveAdultChangeNotification(
     iconUrl: channelImageUrl || "icon_128.png",
     title: title,
     message: `${channelName}님이 ${message}\n[${liveCategoryValue}] ${decodeHtmlEntities(
-      liveTitle
+      liveTitle,
     )}`,
     requireInteraction: false, // true면 클릭 전까지 남음(소리와 무관)
     silent: true, // OS 기본음 끄고, 사운드만 재생하고 싶으면 true
@@ -5573,8 +5663,8 @@ function createPartyNotification(notificationObject) {
   const title = isStart
     ? `🎉 ${channelName}님의 파티 ${isHost ? "생성" : "참여"}!`
     : isLeft
-    ? `👋 ${channelName}님의 파티 떠남!`
-    : `👋 ${channelName}님의 파티 종료!`;
+      ? `👋 ${channelName}님의 파티 떠남!`
+      : `👋 ${channelName}님의 파티 종료!`;
   let message = `[${decodeHtmlEntities(partyName)}]`;
 
   if (isStart) {
@@ -5804,7 +5894,7 @@ function createCategoryChangeObject(
   newCategoryUrl,
   liveInfo,
   isPrime,
-  notificationId
+  notificationId,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const { adult, watchPartyTag, watchPartyNo, dropsCampaignNo, paidPromotion } =
@@ -5838,7 +5928,7 @@ function createLiveAdultChangeObject(
   currentAdultMode,
   liveInfo,
   categoryUrl,
-  isPrime
+  isPrime,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const {
@@ -5881,7 +5971,7 @@ function createLiveTitleChangeObject(
   liveInfo,
   categoryUrl,
   isPrime,
-  notificationId
+  notificationId,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const {
@@ -5929,7 +6019,7 @@ function createCategoryAndLiveTitleChangeObject(
   newCategoryUrl,
   liveInfo,
   isPrime,
-  notificationId
+  notificationId,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const { adult, watchPartyTag, watchPartyNo, dropsCampaignNo, paidPromotion } =
@@ -5981,7 +6071,7 @@ function createPartyStartObject(
   channel,
   partyInfo,
   partySummaryInfoData,
-  accumulatedMembers
+  accumulatedMembers,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const { host, members, count } = partyInfo;
@@ -6009,7 +6099,7 @@ function createPartyLeftObject(
   channel,
   prevPartyInfo,
   accumulatedMembers,
-  memberCount
+  memberCount,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const { partyNo, partyName } = prevPartyInfo;
@@ -6034,7 +6124,7 @@ function createPartyEndObject(
   channel,
   prevPartyInfo,
   accumulatedMembers,
-  memberCount
+  memberCount,
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const { partyNo, partyName } = prevPartyInfo;
@@ -6107,7 +6197,7 @@ function createDonationEndObject(
   finalDistributionMode,
   finalDistributionList,
   memberCount,
-  accumulatedMembers = []
+  accumulatedMembers = [],
 ) {
   const { channelId, channelName, channelImageUrl } = channel;
   const { partyNo, partyName, partyDonationSettingNo } = donationInfo;
@@ -6210,7 +6300,7 @@ function createPostObject(post, channel) {
   const excerpt = decodeHtmlEntities(
     attaches && attaches.length > 0
       ? makeExcerptWithAttaches(content)
-      : makeExcerpt(content)
+      : makeExcerpt(content),
   );
 
   // 팝업에 표시할 알림 내역 저장
@@ -6302,7 +6392,7 @@ async function checkBanners(
   prevSeenBanners = [],
   isPaused,
   isBannerPaused,
-  isBannerKeepPaused
+  isBannerKeepPaused,
 ) {
   const notifications = [];
   try {
@@ -6315,8 +6405,8 @@ async function checkBanners(
       const currentBanners = data.content.banners;
       const seenSet = new Set(
         prevSeenBanners.map(
-          (b) => `${b.title}-${b.imageUrl}-${b.scheduledDate}`
-        )
+          (b) => `${b.title}-${b.imageUrl}-${b.scheduledDate}`,
+        ),
       );
 
       for (const banner of currentBanners) {
@@ -6395,6 +6485,213 @@ function createBannerObject(banner) {
   };
 }
 
+function createSubscriptionGiftReceivedNotification(notificationObject) {
+  chrome.notifications.create(notificationObject.id, {
+    type: "basic",
+    iconUrl: notificationObject.channelImageUrl || "icon_128.png",
+    title: "🎁 구독권 선물을 받았어요",
+    message: notificationObject.content,
+    requireInteraction: false,
+    silent: true,
+  });
+}
+
+function createSubscriptionGiftExpiringNotification(notificationObject) {
+  chrome.notifications.create(notificationObject.id, {
+    type: "basic",
+    iconUrl: notificationObject.channelImageUrl || "icon_128.png",
+    title: "🎁 선물 받은 구독권 만료 안내",
+    message: notificationObject.content,
+    requireInteraction: false,
+    silent: true,
+  });
+}
+
+function createSubscriptionGiftReceivedObject(item) {
+  const historyId = String(item.historyId);
+  const notificationId = `subscription-gift-received-${historyId}`;
+
+  return {
+    id: notificationId,
+    type: "SUBSCRIPTION_GIFT_RECEIVED",
+    channelId: item.channelId,
+    channelName: item.channelName,
+    channelImageUrl: item.channelImageUrl || "../icon_128.png",
+    historyId,
+    historyStatus: item.historyStatus,
+    giftReceiverId: item.giftReceiverId,
+    tier: item.tier,
+    tierNo: item.tierNo,
+    month: item.month,
+    senderNickname: item.senderNickname || "",
+    senderVerifiedMark: !!item.senderVerifiedMark,
+    isSenderAnonymous: !!item.isSenderAnonymous,
+    content: makeSubscriptionGiftReceivedText(item),
+    timestamp:
+      parseChzzkYmdt(item.historyDate)?.toISOString() ||
+      new Date().toISOString(),
+    read: false,
+  };
+}
+
+function createSubscriptionGiftExpiringObject(item, expireAt) {
+  const ymd = item.nextPublishYmdt.slice(0, 10);
+  const tierNo = Number(item.tierNo || 0);
+  const notificationId = `subscription-gift-expiring-${item.channelId}-${tierNo}-${ymd}`;
+
+  return {
+    id: notificationId,
+    type: "SUBSCRIPTION_GIFT_EXPIRING",
+    channelId: item.channelId,
+    channelName: item.channelName,
+    channelImageUrl: item.channelImageUrl || "../icon_128.png",
+    tier: item.tier,
+    tierNo: item.tierNo,
+    tierName: item.tierName || "",
+    nextPublishYmdt: item.nextPublishYmdt,
+    expireAt: expireAt.toISOString(),
+    content: makeSubscriptionGiftExpiringText(item),
+    timestamp: new Date().toISOString(),
+    read: false,
+  };
+}
+
+async function checkSubscriptionGiftNotifications({
+  notificationHistory = [],
+  dismissedSet = new Set(),
+  isPaused = false,
+  isSubscriptionGiftPaused = false,
+  isSubscriptionGiftKeepPaused = false,
+} = {}) {
+  const notifications = [];
+  const now = Date.now();
+  const statusStore = await chrome.storage.local.get(
+    SUBSCRIPTION_GIFT_STATUS_KEY,
+  );
+  const prevStatus = statusStore[SUBSCRIPTION_GIFT_STATUS_KEY] || {};
+  const knownReceivedIds = new Set(
+    normalizeStorageIdList(prevStatus.knownReceivedIds),
+  );
+  const expirationNotifiedIds = new Set(
+    normalizeStorageIdList(prevStatus.expirationNotifiedIds),
+  );
+  const isInitialized = !!prevStatus.initializedAt;
+
+  try {
+    const [receiveRes, channelsRes] = await Promise.all([
+      fetchWithRetry(
+        SUBSCRIPTION_GIFT_RECEIVE_HISTORY_API_URL,
+        { credentials: "include" },
+        { maxRetryAfter: 120_000 },
+      ),
+      fetchWithRetry(
+        SUBSCRIPTION_CHANNELS_API_URL,
+        { credentials: "include" },
+        { maxRetryAfter: 120_000 },
+      ),
+    ]);
+
+    const [receiveJson, channelsJson] = await Promise.all([
+      receiveRes.json(),
+      channelsRes.json(),
+    ]);
+
+    const receivedList = Array.isArray(receiveJson?.content?.data)
+      ? receiveJson.content.data
+      : [];
+
+    for (const item of receivedList) {
+      if (!item?.historyId || item.historyStatus !== "COMPLETED") continue;
+
+      const historyId = String(item.historyId);
+      const notificationId = `subscription-gift-received-${historyId}`;
+      const alreadyKnown = knownReceivedIds.has(historyId);
+      const exists =
+        notificationHistory.some((n) => n.id === notificationId) ||
+        dismissedSet.has(notificationId);
+
+      if (
+        isInitialized &&
+        !alreadyKnown &&
+        !exists &&
+        !isSubscriptionGiftKeepPaused
+      ) {
+        const obj = createSubscriptionGiftReceivedObject(item);
+        notifications.push(obj);
+        if (!isPaused && !isSubscriptionGiftPaused) {
+          createSubscriptionGiftReceivedNotification(obj);
+          playSoundFor("subscriptionGift");
+        }
+      }
+
+      knownReceivedIds.add(historyId);
+    }
+
+    const subscribedChannels = Array.isArray(channelsJson?.content)
+      ? channelsJson.content
+      : [];
+
+    for (const item of subscribedChannels) {
+      if (!item?.isGift || !item?.channelId || !item?.nextPublishYmdt) continue;
+
+      const expireAt = parseChzzkYmdt(item.nextPublishYmdt);
+      if (!expireAt) continue;
+
+      const daysUntilExpire = calendarDayDiff(new Date(now), expireAt);
+      if (daysUntilExpire !== 3) continue;
+
+      const ymd = item.nextPublishYmdt.slice(0, 10);
+      const tierNo = Number(item.tierNo || 0);
+      const notificationId = `subscription-gift-expiring-${item.channelId}-${tierNo}-${ymd}`;
+      const alreadyNotified = expirationNotifiedIds.has(notificationId);
+      const exists =
+        notificationHistory.some((n) => n.id === notificationId) ||
+        dismissedSet.has(notificationId);
+
+      if (!alreadyNotified && !exists && !isSubscriptionGiftKeepPaused) {
+        const obj = createSubscriptionGiftExpiringObject(item, expireAt);
+        notifications.push(obj);
+        if (!isPaused && !isSubscriptionGiftPaused) {
+          createSubscriptionGiftExpiringNotification(obj);
+          playSoundFor("subscriptionGift");
+        }
+      }
+
+      expirationNotifiedIds.add(notificationId);
+    }
+
+    await chrome.storage.local.set({
+      [SUBSCRIPTION_GIFT_STATUS_KEY]: {
+        initializedAt: prevStatus.initializedAt || now,
+        updatedAt: now,
+        knownReceivedIds: Array.from(knownReceivedIds).slice(-500),
+        expirationNotifiedIds: Array.from(expirationNotifiedIds).slice(-500),
+      },
+    });
+  } catch (error) {
+    console.error("Error checking subscription gift notifications:", error);
+    return {
+      newStatus: {
+        ...prevStatus,
+        updatedAt: now,
+        knownReceivedIds: Array.from(knownReceivedIds).slice(-500),
+        expirationNotifiedIds: Array.from(expirationNotifiedIds).slice(-500),
+      },
+      notifications,
+    };
+  }
+
+  return {
+    newStatus: {
+      initializedAt: prevStatus.initializedAt || now,
+      updatedAt: now,
+      knownReceivedIds: Array.from(knownReceivedIds).slice(-500),
+      expirationNotifiedIds: Array.from(expirationNotifiedIds).slice(-500),
+    },
+    notifications,
+  };
+}
+
 // --- 승부예측 시작 알림 생성 함수 ---
 function createPredictionStartNotification(channel, predictionDetails) {
   const { channelImageUrl, channelName } = channel;
@@ -6468,7 +6765,7 @@ function createPredictionEndNotification(channel, predictionDetails) {
 
   if (participation) {
     const myOption = optionList.find(
-      (o) => o.optionNo === participation.selectedOptionNo
+      (o) => o.optionNo === participation.selectedOptionNo,
     );
     const myOptionText = myOption ? myOption.optionText : "선택";
     message += `[나의 선택: ${myOptionText} (${participation.bettingPowers.toLocaleString()}파워)]\n`;
@@ -6479,13 +6776,13 @@ function createPredictionEndNotification(channel, predictionDetails) {
       message += `😱 빗나감...`;
     } else {
       const winningOption = optionList.find(
-        (o) => o.optionNo === winningOptionNo
+        (o) => o.optionNo === winningOptionNo,
       );
       message += `결과: ${winningOption ? winningOption.optionText : "마감"}`;
     }
   } else {
     const winningOption = optionList.find(
-      (o) => o.optionNo === winningOptionNo
+      (o) => o.optionNo === winningOptionNo,
     );
     if (winningOption) {
       message += `결과: ${winningOption.optionText}`;
@@ -6565,6 +6862,10 @@ async function handleNotificationClick(notificationId) {
         case "PREDICTION_END":
           targetUrl = `${CHZZK_URL}/live/${item.channelId}`;
           break;
+        case "SUBSCRIPTION_GIFT_RECEIVED":
+        case "SUBSCRIPTION_GIFT_EXPIRING":
+          targetUrl = `${CHZZK_URL}/${item.channelId}`;
+          break;
         case "PARTY_START":
           targetUrl = `${CHZZK_URL}/party-lives/${item.partyNo}`;
           break;
@@ -6605,7 +6906,7 @@ async function markAllRead(filter, limit) {
     return;
   }
   const { notificationHistory = [] } = await chrome.storage.local.get(
-    "notificationHistory"
+    "notificationHistory",
   );
 
   const filterCondition = (item) => {
@@ -6630,6 +6931,11 @@ async function markAllRead(filter, limit) {
       return item.type === "LOGPOWER" || item.type === "LOGPOWER/SUMMARY";
     if (filter === "PREDICTION")
       return item.type === "PREDICTION_START" || item.type === "PREDICTION_END";
+    if (filter === "SUBSCRIPTION_GIFT")
+      return (
+        item.type === "SUBSCRIPTION_GIFT_RECEIVED" ||
+        item.type === "SUBSCRIPTION_GIFT_EXPIRING"
+      );
     return item.type === filter;
   };
 
@@ -6689,6 +6995,11 @@ async function deleteAllFiltered(filter, limit) {
       return item.type === "LOGPOWER" || item.type === "LOGPOWER/SUMMARY";
     if (filter === "PREDICTION")
       return item.type === "PREDICTION_START" || item.type === "PREDICTION_END";
+    if (filter === "SUBSCRIPTION_GIFT")
+      return (
+        item.type === "SUBSCRIPTION_GIFT_RECEIVED" ||
+        item.type === "SUBSCRIPTION_GIFT_EXPIRING"
+      );
     return item.type === filter;
   };
 
@@ -6731,7 +7042,7 @@ async function deleteNotification(notificationId) {
 
   // history에서 해당 알림을 제거
   const updatedHistory = notificationHistory.filter(
-    (item) => item.id !== notificationId
+    (item) => item.id !== notificationId,
   );
 
   // 재생성 방지를 위해 삭제 ID를 기억
@@ -6752,13 +7063,13 @@ const STORE_KEY = "chzzkBookmarks";
 async function getBookmarks() {
   return new Promise((resolve) =>
     chrome.storage.local.get([STORE_KEY], (res) =>
-      resolve(res[STORE_KEY] || [])
-    )
+      resolve(res[STORE_KEY] || []),
+    ),
   );
 }
 async function setBookmarks(list) {
   return new Promise((resolve) =>
-    chrome.storage.local.set({ [STORE_KEY]: list }, () => resolve(true))
+    chrome.storage.local.set({ [STORE_KEY]: list }, () => resolve(true)),
   );
 }
 function upsert(list, payload) {
@@ -6767,7 +7078,7 @@ function upsert(list, payload) {
     list[idx] = {
       ...list[idx],
       ...Object.fromEntries(
-        Object.entries(payload).filter(([k, v]) => v !== undefined && v !== "")
+        Object.entries(payload).filter(([k, v]) => v !== undefined && v !== ""),
       ),
     };
     return { list, status: "exists" };
@@ -6800,11 +7111,10 @@ async function appendToLogPowerLedger(
   channelName,
   channelImageUrl,
   results,
-  ts
+  ts,
 ) {
-  const { logPowerLedger = { entries: {} } } = await chrome.storage.local.get(
-    "logPowerLedger"
-  );
+  const { logPowerLedger = { entries: {} } } =
+    await chrome.storage.local.get("logPowerLedger");
   const entries = logPowerLedger.entries || {};
 
   for (const r of results || []) {
@@ -6843,11 +7153,10 @@ async function appendToLogPowerLedger(
 
 async function aggregateLogPowerBetweenFromLedger(start, end) {
   const { notificationHistory = [] } = await chrome.storage.local.get(
-    "notificationHistory"
+    "notificationHistory",
   );
-  const { logPowerLedger = { entries: {} } } = await chrome.storage.local.get(
-    "logPowerLedger"
-  );
+  const { logPowerLedger = { entries: {} } } =
+    await chrome.storage.local.get("logPowerLedger");
   const all = Object.values(logPowerLedger.entries || {});
   const sTs = +start,
     eTs = +end;
@@ -7013,7 +7322,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       while (isChecking) {
         console.warn(
-          "deleteAllFiltered: Waiting for isChecking to be false..."
+          "deleteAllFiltered: Waiting for isChecking to be false...",
         );
         await sleep(250);
       }
@@ -7027,7 +7336,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       while (isChecking) {
         console.warn(
-          "deleteNotification: Waiting for isChecking to be false..."
+          "deleteNotification: Waiting for isChecking to be false...",
         );
         await sleep(250);
       }
@@ -7063,7 +7372,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         const vol = Math.min(
           2,
-          Math.max(0, Number(request.volume || 0) * g.volume)
+          Math.max(0, Number(request.volume || 0) * g.volume),
         );
         await chrome.runtime.sendMessage({
           type: "OFFSCREEN_PREVIEW",
@@ -7128,7 +7437,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // “직전” 기준 앵커들 (어제/지난주/지난달/작년 12/31)
         const anchors = expectedSummaryAnchors(new Date()); // daily/weekly/monthly/year_end
         const { logpowerSummaryLastRun = {} } = await chrome.storage.local.get(
-          "logpowerSummaryLastRun"
+          "logpowerSummaryLastRun",
         );
 
         const results = [];
@@ -7179,7 +7488,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       try {
         const res = await fetch(
-          "https://api.chzzk.naver.com/service/v1/log-power/balances"
+          "https://api.chzzk.naver.com/service/v1/log-power/balances",
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
@@ -7212,7 +7521,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const succeeded = results.filter((r) => r.ok);
       const totalClaimed = succeeded.reduce(
         (acc, r) => acc + (r.amount || 0),
-        0
+        0,
       );
       // 성공한 것만 seen 처리
       {
@@ -7240,7 +7549,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         channelName,
         channelImageUrl,
         succeeded,
-        new Date().toISOString()
+        new Date().toISOString(),
       );
 
       const {
@@ -7291,7 +7600,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               newAmount, // 즉시 표시할 새 합계
               delta: totalClaimed, // 이번에 증가한 양
             },
-            () => void chrome.runtime.lastError
+            () => void chrome.runtime.lastError,
           );
         }
       } catch (_) {}

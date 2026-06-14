@@ -2,6 +2,9 @@ const GET_USER_STATUS_API =
   "https://comm-api.game.naver.com/nng_main/v1/user/getUserStatus";
 const CHZZK_CATEGORY_URL = "https://chzzk.naver.com/category/ALL";
 const CHZZK_WATCHPARTY_URL = "https://chzzk.naver.com/watchparty/";
+const POPUP_THEME_STORAGE_KEY = "popupTheme";
+const POPUP_THEME_DARK = "dark";
+const POPUP_THEME_LIGHT = "light";
 
 const allSVG = `<svg width="15" height="15" viewBox="0 0 355 218" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
               <rect width="355" height="218" fill="url(#pattern0_13_54)"></rect>
@@ -649,6 +652,50 @@ function updateAllTimestamps() {
   });
 }
 
+function normalizePopupTheme(theme) {
+  return theme === POPUP_THEME_DARK ? POPUP_THEME_DARK : POPUP_THEME_LIGHT;
+}
+
+function applyPopupTheme(theme) {
+  const nextTheme = normalizePopupTheme(theme);
+  const isDark = nextTheme === POPUP_THEME_DARK;
+  const themeToggleBtn = document.getElementById("theme-toggle-btn");
+
+  document.body.dataset.theme = nextTheme;
+
+  if (themeToggleBtn) {
+    themeToggleBtn.setAttribute("aria-pressed", String(isDark));
+    themeToggleBtn.setAttribute(
+      "aria-label",
+      isDark ? "팝업 라이트 모드로 전환" : "팝업 다크 모드로 전환"
+    );
+    themeToggleBtn.title = isDark
+      ? "팝업 라이트 모드로 전환"
+      : "팝업 다크 모드로 전환";
+  }
+}
+
+async function initializePopupTheme() {
+  const themeToggleBtn = document.getElementById("theme-toggle-btn");
+  const saved = await chrome.storage.local.get({
+    [POPUP_THEME_STORAGE_KEY]: POPUP_THEME_LIGHT,
+  });
+
+  applyPopupTheme(saved[POPUP_THEME_STORAGE_KEY]);
+
+  if (!themeToggleBtn) return;
+
+  themeToggleBtn.addEventListener("click", async () => {
+    const nextTheme =
+      document.body.dataset.theme === POPUP_THEME_DARK
+        ? POPUP_THEME_LIGHT
+        : POPUP_THEME_DARK;
+
+    applyPopupTheme(nextTheme);
+    await chrome.storage.local.set({ [POPUP_THEME_STORAGE_KEY]: nextTheme });
+  });
+}
+
 function hasTooltip(element) {
   return (
     element.querySelector(".tooltip-text") !== null ||
@@ -680,6 +727,7 @@ function applyTooltip() {
   const thumbnailToggleBtn = document.getElementById(
     "video-thumbnail-toggle-btn"
   );
+  const themeToggleBtn = document.getElementById("theme-toggle-btn");
   const bookmarkBtn = document.getElementById("bookmark-btn");
 
   if (
@@ -691,6 +739,7 @@ function applyTooltip() {
     !displayLimitSettingsBtn &&
     !toggleFoldBtn &&
     !thumbnailToggleBtn &&
+    !themeToggleBtn &&
     !bookmarkBtn
   ) {
     return;
@@ -704,6 +753,7 @@ function applyTooltip() {
     hasTooltip(soundSettingsBtn) &&
     hasTooltip(settingsBtn) &&
     hasTooltip(thumbnailToggleBtn) &&
+    hasTooltip(themeToggleBtn) &&
     hasTooltip(bookmarkBtn) &&
     hasTooltip(toggleFoldBtn) &&
     hasTooltip(displayLimitSettingsBtn)
@@ -746,6 +796,10 @@ function applyTooltip() {
   thumbnailToggleTooltipText.className = "tooltip-text";
   thumbnailToggleTooltipText.textContent = "동영상 썸네일 켜기/끄기";
 
+  const themeToggleTooltipText = document.createElement("span");
+  themeToggleTooltipText.className = "tooltip-text";
+  themeToggleTooltipText.textContent = "라이트/다크 모드 전환";
+
   const bookmarkTooltipText = document.createElement("span");
   bookmarkTooltipText.className = "tooltip-text";
   bookmarkTooltipText.textContent = "북마크 목록";
@@ -765,6 +819,7 @@ function applyTooltip() {
   displayLimitSettingsBtn.classList.add("display-limit-settings-tooltip");
   toggleFoldBtn.classList.add("toggle-fold-tooltip");
   thumbnailToggleBtn.classList.add("thumbnail-toggle-tooltip");
+  themeToggleBtn.classList.add("theme-toggle-tooltip");
   bookmarkBtn.classList.add("bookmark-tooltip");
 
   // 4. 툴팁 텍스트를 버튼의 자식으로 추가
@@ -776,6 +831,7 @@ function applyTooltip() {
   displayLimitSettingsBtn.appendChild(displayLimitSettingsTooltipText);
   toggleFoldBtn.appendChild(toggleFoldTooltipText);
   thumbnailToggleBtn.appendChild(thumbnailToggleTooltipText);
+  themeToggleBtn.appendChild(themeToggleTooltipText);
   bookmarkBtn.appendChild(bookmarkTooltipText);
 }
 
@@ -936,6 +992,7 @@ async function updateDonationAmounts() {
 
 // 팝업이 열릴 때마다 모든 상태를 확인하고 UI를 렌더링
 document.addEventListener("DOMContentLoaded", async () => {
+  await initializePopupTheme();
   initializeBookmark();
 
   requestAnimationFrame(() => {

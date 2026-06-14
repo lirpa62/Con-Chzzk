@@ -14,6 +14,20 @@
     return (n || 0).toLocaleString("ko-KR");
   }
 
+  function findTitleElement() {
+    const selected = document.querySelector(TITLE_SELECTOR);
+    if (selected) return selected;
+
+    const candidates = document.querySelectorAll(
+      "strong, h1, h2, h3, [role=heading]",
+    );
+    return (
+      Array.from(candidates).find((el) =>
+        (el.textContent || "").trim().includes("통나무 파워"),
+      ) || null
+    );
+  }
+
   async function fetchTotal() {
     if (cachedTotal != null) return cachedTotal;
     const res = await chrome.runtime
@@ -52,7 +66,7 @@
     if (isRendering) return;
     if (location.hash !== TARGET_HASH) return;
 
-    const titleEl = document.querySelector(TITLE_SELECTOR);
+    const titleEl = findTitleElement();
     if (!titleEl) return;
 
     isRendering = true;
@@ -79,7 +93,7 @@
       if (location.hash !== TARGET_HASH) return;
 
       // 섹션/타이틀이 갈렸거나, 뱃지가 떨어졌으면 재렌더
-      const titleEl = document.querySelector(TITLE_SELECTOR);
+      const titleEl = findTitleElement();
       const badge = document.getElementById(TOTAL_ID);
       if (
         !titleEl ||

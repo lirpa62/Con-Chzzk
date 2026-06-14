@@ -47,6 +47,16 @@ const SUMMARY_KEEP_PAUSE_KEY = "isLogPowerSummaryKeepPaused";
 const LOGPOWER_KNOWN_TOTALS_KEY = "logpower_knownTotals"; // { channelId: { amount, ts, source } }
 const LOGPOWER_LAST_PROCESSED_AT = "logpower_lastProcessedAt_by_channel"; // { channelId: ts }
 const LOGPOWER_CLIENT_CLAIMS_KEY = "logpower_client_claims"; // { channelId: [{ claimId, amount, ts }, ...], ... }
+const LOGPOWER_WATCH_HOUR_TIMER_PREFIX = "logpower_watch_hour_timer:";
+const LOGPOWER_WATCH_HOUR_DURATION_MS = 60 * 60 * 1000;
+const LOGPOWER_WATCH_REWARD_STATE_PREFIX = "logpower_watch_reward_state:";
+const LOGPOWER_WATCH_REWARD_ALARM_PREFIX = "logpower:watch-reward:";
+const LOGPOWER_WATCH_REWARD_INTERVAL_MINUTES = 5;
+const LOGPOWER_WATCH_REWARD_ACTIVE_TTL_MS = 6 * 60 * 1000;
+const LOGPOWER_WATCH_REWARD_MAX_MS = 75 * 60 * 1000;
+const LOGPOWER_WATCH_REWARD_AMOUNTS = [10, 12, 20];
+const LOGPOWER_LIVE_GUARD_ALARM_PREFIX = "logpower:live-guard:";
+const LOGPOWER_LIVE_GUARD_INTERVAL_MINUTES = 1;
 
 // *** 실행 잠금을 위한 전역 변수 ***
 let isChecking = false;
@@ -72,6 +82,365 @@ function debounce(fn, ms) {
     clearTimeout(t);
     t = setTimeout(() => fn(...a), ms);
   };
+}
+
+function getWatchHourTimerKey(channelId) {
+  return `${LOGPOWER_WATCH_HOUR_TIMER_PREFIX}${channelId}`;
+}
+
+async function saveWatchHourTimerForChannel(channelId, startedAt) {
+  if (!channelId) return null;
+
+  const endsAt = startedAt + LOGPOWER_WATCH_HOUR_DURATION_MS;
+  const timer = {
+    channelId,
+    startedAt,
+    endsAt,
+  };
+  await chrome.storage.local.set({ [getWatchHourTimerKey(channelId)]: endsAt });
+  ensureLogPowerLiveGuard(channelId);
+  return timer;
+}
+
+async function getWatchHourTimerForChannel(channelId) {
+  if (!channelId) return null;
+
+  const key = getWatchHourTimerKey(channelId);
+  const store = await chrome.storage.local.get(key);
+  const endsAt = Number(store[key]);
+
+  if (!Number.isFinite(endsAt) || endsAt <= Date.now()) {
+    await chrome.storage.local.remove(key);
+    return null;
+  }
+
+  return {
+    channelId,
+    startedAt: endsAt - LOGPOWER_WATCH_HOUR_DURATION_MS,
+    endsAt,
+  };
+}
+
+async function clearWatchHourTimerForChannel(channelId) {
+  if (!channelId) return;
+  await chrome.storage.local.remove(getWatchHourTimerKey(channelId));
+}
+
+function sendTabMessageQuietly(tabId, message) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, message, () => {
+      void chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+async function broadcastChannelLogPowerUpdate(message) {
+  const tabs = await chrome.tabs.query({ url: `${CHZZK_URL}/*` });
+  await Promise.all(
+    tabs
+      .filter((tab) => tab.id != null)
+      .map((tab) => sendTabMessageQuietly(tab.id, message)),
+  );
+}
+
+function getLogPowerLiveGuardAlarmName(channelId) {
+  return `${LOGPOWER_LIVE_GUARD_ALARM_PREFIX}${channelId}`;
+}
+
+function getChannelIdFromLiveGuardAlarm(alarmName) {
+  return String(alarmName || "").startsWith(LOGPOWER_LIVE_GUARD_ALARM_PREFIX)
+    ? alarmName.slice(LOGPOWER_LIVE_GUARD_ALARM_PREFIX.length)
+    : "";
+}
+
+function ensureLogPowerLiveGuard(channelId) {
+  if (!channelId) return;
+  chrome.alarms.create(getLogPowerLiveGuardAlarmName(channelId), {
+    delayInMinutes: LOGPOWER_LIVE_GUARD_INTERVAL_MINUTES,
+    periodInMinutes: LOGPOWER_LIVE_GUARD_INTERVAL_MINUTES,
+  });
+}
+
+async function clearLogPowerLiveGuard(channelId) {
+  if (!channelId) return;
+  await chrome.alarms.clear(getLogPowerLiveGuardAlarmName(channelId));
+}
+
+async function isChannelLiveOpen(channelId) {
+  if (!channelId) return false;
+
+  const res = await fetchWithRetry(
+    `${LIVE_STATUS_API_PREFIX}/${channelId}/live-status`,
+  );
+  if (!res.ok) throw new Error(`live-status GET 실패: ${res.status}`);
+  const json = await res.json();
+  const content = json?.content;
+  return content?.status === "OPEN" && !content?.closeDate;
+}
+
+async function clearLogPowerLiveStatesForChannel(channelId) {
+  if (!channelId) return;
+
+  await Promise.allSettled([
+    clearWatchRewardState(channelId),
+    clearWatchHourTimerForChannel(channelId),
+    clearLogPowerLiveGuard(channelId),
+  ]);
+  await broadcastChannelLogPowerUpdate({
+    type: "LOG_POWER_LIVE_ENDED",
+    channelId,
+  });
+}
+
+async function checkLogPowerLiveGuard(channelId) {
+  if (!channelId) return;
+
+  const [timer, rewardState] = await Promise.all([
+    getWatchHourTimerForChannel(channelId),
+    getWatchRewardState(channelId),
+  ]);
+  if (!timer && !rewardState) {
+    await clearLogPowerLiveGuard(channelId);
+    return;
+  }
+
+  const isOpen = await isChannelLiveOpen(channelId);
+  if (!isOpen) {
+    await clearLogPowerLiveStatesForChannel(channelId);
+  }
+}
+
+function getWatchRewardStateKey(channelId) {
+  return `${LOGPOWER_WATCH_REWARD_STATE_PREFIX}${channelId}`;
+}
+
+function getWatchRewardAlarmName(channelId) {
+  return `${LOGPOWER_WATCH_REWARD_ALARM_PREFIX}${channelId}`;
+}
+
+function getChannelIdFromWatchRewardAlarm(alarmName) {
+  return String(alarmName || "").startsWith(LOGPOWER_WATCH_REWARD_ALARM_PREFIX)
+    ? alarmName.slice(LOGPOWER_WATCH_REWARD_ALARM_PREFIX.length)
+    : "";
+}
+
+function getWatchRewardAmountFromTier(tier) {
+  const n = Number(tier);
+  if (n === 2) return 20;
+  if (n === 1) return 12;
+  if (n === 0) return 10;
+  return null;
+}
+
+function getWatchRewardTierFromSubscriptionItem(item) {
+  if (!item) return 0;
+  const tierNo = Number(item.tierNo);
+  if (Number.isFinite(tierNo)) return tierNo;
+  const tierMatch = String(item.tier || "").match(/TIER_(\d+)/i);
+  return tierMatch ? Number(tierMatch[1]) : 0;
+}
+
+async function fetchExpectedWatchRewardAmount(channelId, profileUrl) {
+  if (profileUrl) {
+    try {
+      const url = new URL(profileUrl);
+      const isProfileUrl =
+        url.origin === "https://comm-api.game.naver.com" &&
+        url.pathname.includes("/profile") &&
+        url.searchParams.get("streamingChannelId") === channelId;
+
+      if (isProfileUrl) {
+        const res = await fetch(url.toString(), { credentials: "include" });
+        if (res.ok) {
+          const json = await res.json();
+          const tier =
+            json?.content?.streamingProperty?.subscription?.tier ?? 0;
+          const amount = getWatchRewardAmountFromTier(tier);
+          if (amount) {
+            return { amount, tier: Number(tier) || 0, source: "chat-profile" };
+          }
+          return { amount: 10, tier: 0, source: "chat-profile" };
+        }
+      }
+    } catch (error) {
+      console.warn("[log-power] watch reward profile fetch failed:", error);
+    }
+  }
+
+  try {
+    const res = await fetch(
+      "https://api.chzzk.naver.com/commercial/v1/subscribe/channels",
+      { credentials: "include" },
+    );
+    if (res.ok) {
+      const json = await res.json();
+      const list = Array.isArray(json?.content) ? json.content : [];
+      const item = list.find((x) => x?.channelId === channelId);
+      const tier = getWatchRewardTierFromSubscriptionItem(item);
+      return {
+        amount: getWatchRewardAmountFromTier(tier) || 10,
+        tier,
+        source: "subscribe-channels",
+      };
+    }
+  } catch (error) {
+    console.warn("[log-power] watch reward subscription fetch failed:", error);
+  }
+
+  return { amount: null, tier: null, source: "fallback" };
+}
+
+async function getWatchRewardState(channelId) {
+  if (!channelId) return null;
+  const key = getWatchRewardStateKey(channelId);
+  const store = await chrome.storage.session.get(key);
+  return store[key] || null;
+}
+
+async function setWatchRewardState(channelId, state) {
+  await chrome.storage.session.set({
+    [getWatchRewardStateKey(channelId)]: state,
+  });
+}
+
+async function clearWatchRewardState(channelId) {
+  await chrome.storage.session.remove(getWatchRewardStateKey(channelId));
+  await chrome.alarms.clear(getWatchRewardAlarmName(channelId));
+}
+
+function toWatchRewardStatus(state, activeOverride) {
+  const now = Date.now();
+  const active =
+    typeof activeOverride === "boolean"
+      ? activeOverride
+      : Number(state?.activeUntil || 0) > now;
+  return {
+    type: "LOG_POWER_WATCH_REWARD_STATUS",
+    channelId: state?.channelId,
+    active,
+    expectedAmount: state?.expectedAmount || null,
+    tier: state?.tier ?? null,
+    source: state?.source || "",
+  };
+}
+
+async function broadcastWatchRewardStatus(state, activeOverride) {
+  if (!state?.channelId) return;
+  await broadcastChannelLogPowerUpdate(
+    toWatchRewardStatus(state, activeOverride),
+  );
+}
+
+async function startWatchRewardTracking({
+  channelId,
+  initialAmount,
+  profileUrl = "",
+}) {
+  if (!channelId || !Number.isFinite(Number(initialAmount))) return null;
+  const liveOpen = await isChannelLiveOpen(channelId).catch(() => true);
+  if (!liveOpen) {
+    await clearLogPowerLiveStatesForChannel(channelId);
+    return null;
+  }
+
+  const now = Date.now();
+  const existingRaw = await getWatchRewardState(channelId);
+  const existing =
+    existingRaw &&
+    now - Number(existingRaw.startedAt || 0) <= LOGPOWER_WATCH_REWARD_MAX_MS
+      ? existingRaw
+      : null;
+  const expected = await fetchExpectedWatchRewardAmount(channelId, profileUrl);
+  const previousActiveUntil = Number(existing?.activeUntil || 0);
+  const state = {
+    ...(existing || {}),
+    channelId,
+    profileUrl: profileUrl || existing?.profileUrl || "",
+    expectedAmount: expected.amount,
+    tier: expected.tier,
+    source: expected.source,
+    startedAt: existing?.startedAt || now,
+    lastCheckedAt: now,
+    lastAmount: Number(existing?.lastAmount ?? initialAmount),
+    activeUntil: previousActiveUntil > now ? previousActiveUntil : 0,
+    misses: Number(existing?.misses || 0),
+  };
+
+  await setWatchRewardState(channelId, state);
+  ensureLogPowerLiveGuard(channelId);
+  chrome.alarms.create(getWatchRewardAlarmName(channelId), {
+    delayInMinutes: LOGPOWER_WATCH_REWARD_INTERVAL_MINUTES,
+    periodInMinutes: LOGPOWER_WATCH_REWARD_INTERVAL_MINUTES,
+  });
+
+  return state;
+}
+
+async function getWatchRewardStatus(channelId) {
+  const state = await getWatchRewardState(channelId);
+  if (!state) return null;
+
+  const now = Date.now();
+  if (Number(state.activeUntil || 0) <= now) {
+    return { ...state, activeUntil: 0 };
+  }
+  return state;
+}
+
+async function checkWatchRewardProgress(channelId) {
+  const state = await getWatchRewardState(channelId);
+  if (!state) {
+    await chrome.alarms.clear(getWatchRewardAlarmName(channelId));
+    return;
+  }
+
+  const now = Date.now();
+  if (!(await isChannelLiveOpen(channelId))) {
+    await clearLogPowerLiveStatesForChannel(channelId);
+    return;
+  }
+
+  if (now - Number(state.startedAt || now) > LOGPOWER_WATCH_REWARD_MAX_MS) {
+    await clearWatchRewardState(channelId);
+    await broadcastWatchRewardStatus(state, false);
+    return;
+  }
+
+  const content = await fetchLogPower(channelId);
+  const currentAmount = Number(content?.amount);
+  if (!Number.isFinite(currentAmount)) return;
+
+  const lastAmount = Number(state.lastAmount || 0);
+  const delta = currentAmount - lastAmount;
+  const expectedAmounts = state.expectedAmount
+    ? [state.expectedAmount]
+    : LOGPOWER_WATCH_REWARD_AMOUNTS;
+  const matched = expectedAmounts.includes(delta);
+  const wasActive = Number(state.activeUntil || 0) > now;
+  const nextState = {
+    ...state,
+    lastCheckedAt: now,
+    lastAmount: currentAmount,
+  };
+
+  if (matched) {
+    nextState.activeUntil = now + LOGPOWER_WATCH_REWARD_ACTIVE_TTL_MS;
+    nextState.misses = 0;
+    await setWatchRewardState(channelId, nextState);
+    await broadcastWatchRewardStatus(nextState, true);
+    return;
+  }
+
+  nextState.misses = Number(state.misses || 0) + 1;
+  if (nextState.misses >= 2) {
+    nextState.activeUntil = 0;
+  }
+  await setWatchRewardState(channelId, nextState);
+
+  if (wasActive && Number(nextState.activeUntil || 0) <= now) {
+    await broadcastWatchRewardStatus(nextState, false);
+  }
 }
 
 let ADAPTIVE = structuredClone(ADAPTIVE_DEFAULT);
@@ -705,6 +1074,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     periodInMinutes: 24 * 60,
   });
 
+  if (details.reason === "update") {
+    await showUpdateBannerInOpenTabs();
+    updateUnreadCountBadge().catch((error) => {
+      console.warn("Failed to update unread badge after update:", error);
+    });
+  }
+
   try {
     // 1. 오늘 날짜 구하기 (KST 기준)
     const d = new Date();
@@ -806,19 +1182,33 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       await chrome.storage.local.remove("is_banner_id_migrated");
   }
 
-  // '업데이트' 시에만 실행되는 로직
-  if (details.reason === "update") {
-    updateUnreadCountBadge();
+  checkInitialLoginStatus();
+});
 
+async function showUpdateBannerInOpenTabs() {
+  const targetUrls = [`${CHZZK_URL}/*`, "https://game.naver.com/profile*"];
+  const tabsById = new Map();
+
+  for (const url of targetUrls) {
     try {
-      const targetUrl = `${CHZZK_URL}/*`;
-      const tabs = await chrome.tabs.query({ url: targetUrl });
-
+      const tabs = await chrome.tabs.query({ url });
       for (const tab of tabs) {
-        // 1. 이전 버전의 타이머 정리
-        await chrome.scripting.executeScript({
+        if (tab.id != null) tabsById.set(tab.id, tab);
+      }
+    } catch (error) {
+      console.warn(`Failed to query tabs for update banner (${url}):`, error);
+    }
+  }
+
+  const ignoreCannotAccessError = (error) =>
+    String(error?.message || error).includes("Cannot access contents");
+
+  const results = await Promise.allSettled(
+    Array.from(tabsById.values()).map(async (tab) => {
+      await chrome.scripting
+        .executeScript({
           target: { tabId: tab.id },
-          function: () => {
+          func: () => {
             const STORAGE_KEY = "chzzkExt_loginMonitorId";
             const intervalId = sessionStorage.getItem(STORAGE_KEY);
             if (intervalId) {
@@ -826,27 +1216,27 @@ chrome.runtime.onInstalled.addListener(async (details) => {
               sessionStorage.removeItem(STORAGE_KEY);
             }
           },
+        })
+        .catch((error) => {
+          if (!ignoreCannotAccessError(error)) throw error;
         });
 
-        // 2. 업데이트 안내 배너 삽입
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            function: showUpdateNotificationBanner,
-          });
-        } catch (e) {
-          console.error(`[${tab.id}] Fail to insert banner into tab:`, e);
-        }
-      }
-    } catch (error) {
-      console.warn(
-        "Error occurred while clearing the previous timer.:",
-        error.message,
-      );
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: showUpdateNotificationBanner,
+      });
+    }),
+  );
+
+  for (const result of results) {
+    if (
+      result.status === "rejected" &&
+      !ignoreCannotAccessError(result.reason)
+    ) {
+      console.warn("업데이트 안내 배너를 표시하지 못했습니다.", result.reason);
     }
   }
-  checkInitialLoginStatus();
-});
+}
 
 /**
  * 페이지 내에 업데이트 안내 배너를 표시하는 함수.
@@ -1290,6 +1680,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
   if (alarm.name === BOOKMARK_REFRESH_ALARM) {
     refreshBookmarkLiveStatus();
+  }
+  const watchRewardChannelId = getChannelIdFromWatchRewardAlarm(alarm.name);
+  if (watchRewardChannelId) {
+    checkWatchRewardProgress(watchRewardChannelId).catch((error) =>
+      console.warn("[log-power] watch reward check failed:", error),
+    );
+  }
+  const liveGuardChannelId = getChannelIdFromLiveGuardAlarm(alarm.name);
+  if (liveGuardChannelId) {
+    checkLogPowerLiveGuard(liveGuardChannelId).catch((error) =>
+      console.warn("[log-power] live guard check failed:", error),
+    );
   }
 });
 
@@ -5838,7 +6240,7 @@ function createVideoNotification(video) {
 
   chrome.notifications.create(notificationId, {
     type: "basic",
-    iconUrl: thumbnailImageUrl || channel.channelImageUrl || "icon_128.png",
+    iconUrl: channel.channelImageUrl || thumbnailImageUrl || "icon_128.png",
     title: title,
     message: messageContent,
     requireInteraction: false, // true면 클릭 전까지 남음(소리와 무관)
@@ -7401,6 +7803,66 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // async 응답
   }
 
+  if (request.type === "GET_LOG_POWER_WATCH_HOUR_TIMER") {
+    (async () => {
+      try {
+        const { channelId } = request;
+        const timer = await getWatchHourTimerForChannel(channelId);
+        if (timer) {
+          const liveOpen = await isChannelLiveOpen(channelId).catch(() => true);
+          if (!liveOpen) {
+            await clearLogPowerLiveStatesForChannel(channelId);
+            sendResponse({ ok: true, timer: null });
+            return;
+          }
+          ensureLogPowerLiveGuard(channelId);
+        }
+        sendResponse({ ok: true, timer });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
+  if (request.type === "START_LOG_POWER_WATCH_REWARD_TRACKING") {
+    (async () => {
+      try {
+        const state = await startWatchRewardTracking({
+          channelId: request.channelId,
+          initialAmount: Number(request.initialAmount),
+          profileUrl: request.profileUrl || "",
+        });
+        sendResponse({ ok: true, status: state && toWatchRewardStatus(state) });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
+  if (request.type === "GET_LOG_POWER_WATCH_REWARD_STATUS") {
+    (async () => {
+      try {
+        const { channelId } = request;
+        const state = await getWatchRewardStatus(channelId);
+        if (state) {
+          const liveOpen = await isChannelLiveOpen(channelId).catch(() => true);
+          if (!liveOpen) {
+            await clearLogPowerLiveStatesForChannel(channelId);
+            sendResponse({ ok: true, status: null });
+            return;
+          }
+          ensureLogPowerLiveGuard(channelId);
+        }
+        sendResponse({ ok: true, status: state && toWatchRewardStatus(state) });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      }
+    })();
+    return true;
+  }
+
   if (request?.type === "LOG_POWER_CHECK_NOW") {
     (async () => {
       try {
@@ -7489,6 +7951,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       try {
         const res = await fetch(
           "https://api.chzzk.naver.com/service/v1/log-power/balances",
+          { credentials: "include" },
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
@@ -7543,6 +8006,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           displayBaseAmount: meta.displayBaseAmount,
         };
       });
+      const watchHourClaimed = claimedList.some(
+        (item) => String(item.claimType || "").toUpperCase() === "WATCH_1_HOUR",
+      );
+      if (watchHourClaimed) {
+        await clearWatchRewardState(channelId).catch((error) =>
+          console.warn("[log-power] watch reward cleanup failed:", error),
+        );
+      }
 
       await appendToLogPowerLedger(
         channelId,
@@ -7578,8 +8049,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       }
 
+      const nowTs = Date.now();
       try {
-        const nowTs = Date.now();
         // succeeded (ok인 결과 배열) 를 넘겨서 clientClaims에 저장
         await _recordClientClaims(channelId, succeeded, nowTs);
       } catch (e) {
@@ -7588,21 +8059,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       const newAmount = (baseTotalAmount || 0) + (totalClaimed || 0);
 
-      // 같은 탭의 content.js에게 "뱃지 갱신" 알림
+      // 같은 채널을 보고 있는 content.js에게 "뱃지 갱신" 알림
       try {
-        const targetTabId = sender?.tab?.id;
-        if (targetTabId) {
-          chrome.tabs.sendMessage(
-            targetTabId,
-            {
-              type: "CHANNEL_LOG_POWER_UPDATED",
-              channelId,
-              newAmount, // 즉시 표시할 새 합계
-              delta: totalClaimed, // 이번에 증가한 양
-            },
-            () => void chrome.runtime.lastError,
-          );
-        }
+        const watchHourTimer = watchHourClaimed
+          ? await saveWatchHourTimerForChannel(channelId, nowTs)
+          : null;
+
+        await broadcastChannelLogPowerUpdate({
+          type: "CHANNEL_LOG_POWER_UPDATED",
+          channelId,
+          newAmount, // 즉시 표시할 새 합계
+          delta: totalClaimed, // 이번에 증가한 양
+          watchHourClaimed,
+          watchHourTimerStartedAt: watchHourTimer?.startedAt || nowTs,
+          watchHourTimerEndsAt: watchHourTimer?.endsAt || 0,
+        });
       } catch (_) {}
 
       if (!isPaused && !isLogPowerPaused && !isLogPowerKeepPaused && entry) {

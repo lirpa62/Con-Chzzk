@@ -2,15 +2,53 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 2px;
   border-radius: 5px;
   padding: 14px 4px;
   height: 16px;
-  margin-left: 5px;
+  margin-left: auto;
   color: var(--Content-Neutral-Cool-Strong);
   cursor: pointer;
 }
 #conchzzk-live-logpower:hover {
   background: var(--Surface-Interaction-Lighten-Hovered);
+}
+#conchzzk-live-logpower .conchzzk-logpower-text {
+  min-width: 22px;
+  font-size: 10px;
+  text-align: left;
+}
+.conchzzk-logpower-timer,
+.conchzzk-logpower-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+  padding-left: 2px;
+  border-left: 1px solid rgba(var(--color-border-01-rgb), 0.25);
+  color: var(--Content-Brand-Strong);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.conchzzk-logpower-timer[hidden],
+.conchzzk-logpower-progress[hidden],
+.conchzzk-logpower-claimed[hidden] {
+  display: none;
+}
+.conchzzk-logpower-timer svg,
+.conchzzk-logpower-progress svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+.conchzzk-logpower-claimed {
+  color: var(--Content-Brand-Strong);
+}
+.conchzzk-logpower-time {
+  min-width: 31px;
+  text-align: left;
 }
 /* 툴팁 텍스트 박스 스타일 */
 .logpower-tooltip .tooltip-text {
@@ -18,7 +56,8 @@
   width: 80px;
   background-color: var(--Surface-Neutral-Base);
   color: var(--Content-Neutral-Cool-Stronger);
-  box-shadow: 0 2px 8px 0 var(--color-shadow-layer04-02),
+  box-shadow:
+    0 2px 8px 0 var(--color-shadow-layer04-02),
     0 0 2px 0 var(--color-shadow-layer04-01);
   text-align: center;
   padding: 7px;
@@ -74,7 +113,8 @@
   overflow: visible;
   color: var(--Content-Neutral-Cool-Strong);
   background: var(--Background-Neutral-Base);
-  box-shadow: 0 4px 4px 0 var(--Shadow-Strong),
+  box-shadow:
+    0 4px 4px 0 var(--Shadow-Strong),
     0 4px 12px 4px var(--Shadow-Base);
 }
 .chzzk_power_popup_action {
@@ -170,10 +210,127 @@
   font-size: 11px;
   margin-bottom: 7px;
 }
+.logpower-meta-control-wrap {
+  width: 97%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3px;
+  margin: 5px auto 7px 0;
+  padding-top: 5px;
+  border-top: 1px solid rgba(var(--color-border-01-rgb), 0.16);
+}
+.logpower-meta-wrap {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.logpower-meta-wrap .channel-logpower {
+  border-top: 0;
+  padding-top: 0;
+  margin: 0 0 4px;
+}
+.logpower-meta-wrap .logpower-info {
+  margin-bottom: 0;
+}
+.logpower-limit-control {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--Content-Neutral-Cool-Strong);
+}
+.logpower-limit-stepper {
+  display: inline-grid;
+  grid-template-columns: 46px 22px;
+  align-items: stretch;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--Border-Neutral-Strong-Static);
+  border-radius: 7px;
+  background: var(--Background-Neutral-Base);
+}
+.logpower-limit-stepper:focus-within {
+  box-shadow: 0 0 2px 1px var(--Border-Brand-Base);
+}
+.logpower-limit-control input {
+  width: 46px;
+  height: 90%;
+  box-sizing: border-box;
+  border: 0;
+  border-right: 1px solid var(--Border-Neutral-Strong-Static);
+  border-radius: 0;
+  background: var(--Background-Neutral-Base);
+  color: var(--Content-Neutral-Cool-Strong);
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.logpower-limit-control input::-webkit-outer-spin-button,
+.logpower-limit-control input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.logpower-limit-control input:focus {
+  outline: none;
+}
+.logpower-limit-spinner {
+  display: flex;
+  flex-direction: column;
+  width: 22px;
+  height: 100%;
+}
+.logpower-limit-step-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 14px;
+  border: 0;
+  padding: 0;
+  background: var(--Background-Neutral-Base);
+  color: var(--Content-Neutral-Cool-Weak);
+  cursor: pointer;
+}
+.logpower-limit-step-button + .logpower-limit-step-button {
+  border-top: 1px solid var(--Border-Neutral-Strong-Static);
+}
+.logpower-limit-step-button:hover:not(:disabled) {
+  background: var(--Surface-Interaction-Lighten-Hovered);
+  color: var(--Content-Neutral-Cool-Strong);
+}
+.logpower-limit-step-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.logpower-limit-step-button svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
 .channel-logpower-table {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+.channel-logpower-table::-webkit-scrollbar {
+  width: 6px;
+}
+.channel-logpower-table::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--Border-Neutral-Strong-Static);
+}
+.channel-logpower-table::-webkit-scrollbar-track {
+  background: transparent;
 }
 .logpower-row {
   display: flex;

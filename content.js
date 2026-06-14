@@ -929,6 +929,31 @@ async function offAllNotifications() {
 
 let popupCreateRetryTimer = null;
 let popupLayerEscHandler = null;
+const LOGPOWER_POPUP_LIMIT_KEY = "logpowerPopupTopLimit";
+const LOGPOWER_POPUP_DEFAULT_LIMIT = 5;
+
+function clampLogPowerPopupLimit(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return LOGPOWER_POPUP_DEFAULT_LIMIT;
+  return Math.min(99, Math.max(5, Math.floor(n)));
+}
+
+function getStoredLogPowerPopupLimit(fallback = LOGPOWER_POPUP_DEFAULT_LIMIT) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(
+      { [LOGPOWER_POPUP_LIMIT_KEY]: fallback },
+      (data) => {
+        resolve(clampLogPowerPopupLimit(data[LOGPOWER_POPUP_LIMIT_KEY]));
+      },
+    );
+  });
+}
+
+function setStoredLogPowerPopupLimit(value) {
+  chrome.storage.local.set({
+    [LOGPOWER_POPUP_LIMIT_KEY]: clampLogPowerPopupLimit(value),
+  });
+}
 
 /**
  * 팝업에 필요한 스타일시트를 페이지에 주입하는 함수.
@@ -1049,44 +1074,41 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     window.addEventListener("keydown", popupLayerEscHandler);
 
     // --- API 호출 및 데이터 렌더링 ---
-    fetch("https://api.chzzk.naver.com/service/v1/log-power/balances", {
-      credentials: "include",
-    })
-      .then((res) => res.json())
-      .then((data) => {
+    const fallbackLimit =
+      limit === Infinity ? LOGPOWER_POPUP_DEFAULT_LIMIT : limit;
+    Promise.all([
+      fetch("https://api.chzzk.naver.com/service/v1/log-power/balances", {
+        credentials: "include",
+      }).then((res) => res.json()),
+      getStoredLogPowerPopupLimit(fallbackLimit),
+    ])
+      .then(([data, initialLimit]) => {
         loading.remove();
         const arr = data?.content?.data || [];
 
         const sorted = arr.sort((a, b) => b.amount - a.amount);
 
-        const limitedData = sorted.slice(0, limit);
-
         const totalPower = sorted.reduce((sum, x) => sum + x.amount, 0);
-        const totalLimitedDataLogPower = limitedData.reduce(
-          (sum, x) => sum + x.amount,
-          0,
-        );
 
         const table = document.createElement("div");
         table.className = "chzzk_power_popup_table";
         const defaultImg =
           "https://ssl.pstatic.net/cmstatic/nng/img/img_anonymous_square_gray_opacity2x.png?type=f120_120_na";
 
-        let limitNotice = "";
-        if (limit !== Infinity && sorted.length > limit) {
-          limitNotice = `<div class="logpower-limit-notice">상위 ${limit}개 채널만 표시합니다.</div>`;
-        }
+        let currentLimit = initialLimit;
+        refreshBtn.onclick = () => {
+          removePopup();
+          showLogPowerBalancesPopup(currentLimit);
+        };
 
-        table.innerHTML = `
-                <div class="total-logpower">전체 통나무 파워 합계 <span><svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="live_chatting_popup_my_profile_icon_power__laD+4"><mask id="mask0_4502_4387" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" style="mask-type: alpha;"><path d="M6.79453 2.43359C7.09254 2.43374 7.36838 2.58075 7.53476 2.82161L7.59921 2.93099L8.91692 5.56641H5.98333L5.82643 5.25326L5.06796 3.73568C4.76891 3.13737 5.20381 2.43379 5.87265 2.43359H6.79453Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1484 4.43359C13.0053 4.43359 13.6561 5.0624 14.0599 5.80273C14.4754 6.5645 14.7148 7.57802 14.7148 8.66667C14.7148 9.75531 14.4754 10.7688 14.0599 11.5306C13.6561 12.2709 13.0053 12.8997 12.1484 12.8997H4C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359H12.1484ZM4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641ZM6.52604 9.43359C6.48364 9.83162 6.40829 10.2124 6.30404 10.5664H11.6667L11.7246 10.5638C12.0104 10.5348 12.2331 10.2934 12.2331 10C12.2331 9.7066 12.0104 9.46522 11.7246 9.4362L11.6667 9.43359H6.52604ZM6.28385 6.70052C6.39253 7.05354 6.47186 7.43444 6.51823 7.83333H7.33333L7.39128 7.83073C7.67694 7.80172 7.89962 7.56022 7.89974 7.26693C7.89974 6.97353 7.67701 6.73215 7.39128 6.70312L7.33333 6.70052H6.28385ZM9.60026 6.70052C9.2873 6.70052 9.0332 6.95397 9.0332 7.26693C9.03333 7.57978 9.28738 7.83333 9.60026 7.83333H13.5228C13.4637 7.41061 13.3619 7.02765 13.2298 6.70052H9.60026Z" fill="currentColor"></path><path d="M5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667ZM6.56641 8.66667C6.56641 9.75531 6.32696 10.7688 5.91146 11.5306C5.50764 12.2709 4.85686 12.8997 4 12.8997C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359C4.85686 4.43359 5.50764 5.0624 5.91146 5.80273C6.32696 6.5645 6.56641 7.57802 6.56641 8.66667Z" fill="currentColor"></path><path d="M4.66667 8.66667C4.66667 9.40305 4.36819 10 4 10C3.63181 10 3.33333 9.40305 3.33333 8.66667C3.33333 7.93029 3.63181 7.33333 4 7.33333C4.36819 7.33333 4.66667 7.93029 4.66667 8.66667Z" fill="currentColor"></path></mask><g mask="url(#mask0_4502_4387)"><rect width="15.9998" height="16" fill="currentColor"></rect></g></svg> ${totalPower.toLocaleString()}</span></div>
-                <div class="total-logpower">TOP 5 통나무 파워 합계 <span><svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="live_chatting_popup_my_profile_icon_power__laD+4"><mask id="mask0_4502_4387" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" style="mask-type: alpha;"><path d="M6.79453 2.43359C7.09254 2.43374 7.36838 2.58075 7.53476 2.82161L7.59921 2.93099L8.91692 5.56641H5.98333L5.82643 5.25326L5.06796 3.73568C4.76891 3.13737 5.20381 2.43379 5.87265 2.43359H6.79453Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1484 4.43359C13.0053 4.43359 13.6561 5.0624 14.0599 5.80273C14.4754 6.5645 14.7148 7.57802 14.7148 8.66667C14.7148 9.75531 14.4754 10.7688 14.0599 11.5306C13.6561 12.2709 13.0053 12.8997 12.1484 12.8997H4C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359H12.1484ZM4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641ZM6.52604 9.43359C6.48364 9.83162 6.40829 10.2124 6.30404 10.5664H11.6667L11.7246 10.5638C12.0104 10.5348 12.2331 10.2934 12.2331 10C12.2331 9.7066 12.0104 9.46522 11.7246 9.4362L11.6667 9.43359H6.52604ZM6.28385 6.70052C6.39253 7.05354 6.47186 7.43444 6.51823 7.83333H7.33333L7.39128 7.83073C7.67694 7.80172 7.89962 7.56022 7.89974 7.26693C7.89974 6.97353 7.67701 6.73215 7.39128 6.70312L7.33333 6.70052H6.28385ZM9.60026 6.70052C9.2873 6.70052 9.0332 6.95397 9.0332 7.26693C9.03333 7.57978 9.28738 7.83333 9.60026 7.83333H13.5228C13.4637 7.41061 13.3619 7.02765 13.2298 6.70052H9.60026Z" fill="currentColor"></path><path d="M5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667ZM6.56641 8.66667C6.56641 9.75531 6.32696 10.7688 5.91146 11.5306C5.50764 12.2709 4.85686 12.8997 4 12.8997C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359C4.85686 4.43359 5.50764 5.0624 5.91146 5.80273C6.32696 6.5645 6.56641 7.57802 6.56641 8.66667Z" fill="currentColor"></path><path d="M4.66667 8.66667C4.66667 9.40305 4.36819 10 4 10C3.63181 10 3.33333 9.40305 3.33333 8.66667C3.33333 7.93029 3.63181 7.33333 4 7.33333C4.36819 7.33333 4.66667 7.93029 4.66667 8.66667Z" fill="currentColor"></path></mask><g mask="url(#mask0_4502_4387)"><rect width="15.9998" height="16" fill="currentColor"></rect></g></svg> ${totalLimitedDataLogPower.toLocaleString()}</span></div>
-                <div class="channel-logpower"><a href="https://game.naver.com/profile#channel_power" target="_blank">채널별 통나무 파워</a></div>
-                ${limitNotice}
-                <div class="logpower-info">100 파워 이상 보유한 채널만 표시합니다.<br>비활성화된 채널은 회색으로 표시됩니다.</div>
-                <div class="channel-logpower-table">
-                    ${limitedData
-                      .map(
-                        (x, i) => `
+        const getLimitedData = () => sorted.slice(0, currentLimit);
+        const getLimitedTotal = () =>
+          getLimitedData().reduce((sum, x) => sum + x.amount, 0);
+
+        const renderLogPowerRows = (rows) =>
+          rows
+            .map(
+              (x, i) => `
                         <div class="logpower-row">
                             <div>
                                 <span style="color:${
@@ -1119,10 +1141,119 @@ function showLogPowerBalancesPopup(limit = Infinity) {
                             };">${x.amount.toLocaleString()}</span>
                         </div>
                     `,
-                      )
-                      .join("")}
+            )
+            .join("");
+
+        function setPowerValue(el, amount) {
+          const icon = el.querySelector("svg");
+          const children = [
+            document.createTextNode(` ${amount.toLocaleString()}`),
+          ];
+          if (icon) {
+            children.unshift(icon.cloneNode(true));
+          }
+          el.replaceChildren(...children);
+        }
+
+        table.innerHTML = `
+                <div class="total-logpower">전체 통나무 파워 합계 <span><svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="live_chatting_popup_my_profile_icon_power__laD+4"><mask id="mask0_4502_4387" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" style="mask-type: alpha;"><path d="M6.79453 2.43359C7.09254 2.43374 7.36838 2.58075 7.53476 2.82161L7.59921 2.93099L8.91692 5.56641H5.98333L5.82643 5.25326L5.06796 3.73568C4.76891 3.13737 5.20381 2.43379 5.87265 2.43359H6.79453Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1484 4.43359C13.0053 4.43359 13.6561 5.0624 14.0599 5.80273C14.4754 6.5645 14.7148 7.57802 14.7148 8.66667C14.7148 9.75531 14.4754 10.7688 14.0599 11.5306C13.6561 12.2709 13.0053 12.8997 12.1484 12.8997H4C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359H12.1484ZM4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641ZM6.52604 9.43359C6.48364 9.83162 6.40829 10.2124 6.30404 10.5664H11.6667L11.7246 10.5638C12.0104 10.5348 12.2331 10.2934 12.2331 10C12.2331 9.7066 12.0104 9.46522 11.7246 9.4362L11.6667 9.43359H6.52604ZM6.28385 6.70052C6.39253 7.05354 6.47186 7.43444 6.51823 7.83333H7.33333L7.39128 7.83073C7.67694 7.80172 7.89962 7.56022 7.89974 7.26693C7.89974 6.97353 7.67701 6.73215 7.39128 6.70312L7.33333 6.70052H6.28385ZM9.60026 6.70052C9.2873 6.70052 9.0332 6.95397 9.0332 7.26693C9.03333 7.57978 9.28738 7.83333 9.60026 7.83333H13.5228C13.4637 7.41061 13.3619 7.02765 13.2298 6.70052H9.60026Z" fill="currentColor"></path><path d="M5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667ZM6.56641 8.66667C6.56641 9.75531 6.32696 10.7688 5.91146 11.5306C5.50764 12.2709 4.85686 12.8997 4 12.8997C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359C4.85686 4.43359 5.50764 5.0624 5.91146 5.80273C6.32696 6.5645 6.56641 7.57802 6.56641 8.66667Z" fill="currentColor"></path><path d="M4.66667 8.66667C4.66667 9.40305 4.36819 10 4 10C3.63181 10 3.33333 9.40305 3.33333 8.66667C3.33333 7.93029 3.63181 7.33333 4 7.33333C4.36819 7.33333 4.66667 7.93029 4.66667 8.66667Z" fill="currentColor"></path></mask><g mask="url(#mask0_4502_4387)"><rect width="15.9998" height="16" fill="currentColor"></rect></g></svg> ${totalPower.toLocaleString()}</span></div>
+                <div class="total-logpower logpower-top-total">TOP 5 통나무 파워 합계 <span><svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="live_chatting_popup_my_profile_icon_power__laD+4"><mask id="mask0_4502_4387" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" style="mask-type: alpha;"><path d="M6.79453 2.43359C7.09254 2.43374 7.36838 2.58075 7.53476 2.82161L7.59921 2.93099L8.91692 5.56641H5.98333L5.82643 5.25326L5.06796 3.73568C4.76891 3.13737 5.20381 2.43379 5.87265 2.43359H6.79453Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1484 4.43359C13.0053 4.43359 13.6561 5.0624 14.0599 5.80273C14.4754 6.5645 14.7148 7.57802 14.7148 8.66667C14.7148 9.75531 14.4754 10.7688 14.0599 11.5306C13.6561 12.2709 13.0053 12.8997 12.1484 12.8997H4C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359H12.1484ZM4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641ZM6.52604 9.43359C6.48364 9.83162 6.40829 10.2124 6.30404 10.5664H11.6667L11.7246 10.5638C12.0104 10.5348 12.2331 10.2934 12.2331 10C12.2331 9.7066 12.0104 9.46522 11.7246 9.4362L11.6667 9.43359H6.52604ZM6.28385 6.70052C6.39253 7.05354 6.47186 7.43444 6.51823 7.83333H7.33333L7.39128 7.83073C7.67694 7.80172 7.89962 7.56022 7.89974 7.26693C7.89974 6.97353 7.67701 6.73215 7.39128 6.70312L7.33333 6.70052H6.28385ZM9.60026 6.70052C9.2873 6.70052 9.0332 6.95397 9.0332 7.26693C9.03333 7.57978 9.28738 7.83333 9.60026 7.83333H13.5228C13.4637 7.41061 13.3619 7.02765 13.2298 6.70052H9.60026Z" fill="currentColor"></path><path d="M5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667ZM6.56641 8.66667C6.56641 9.75531 6.32696 10.7688 5.91146 11.5306C5.50764 12.2709 4.85686 12.8997 4 12.8997C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359C4.85686 4.43359 5.50764 5.0624 5.91146 5.80273C6.32696 6.5645 6.56641 7.57802 6.56641 8.66667Z" fill="currentColor"></path><path d="M4.66667 8.66667C4.66667 9.40305 4.36819 10 4 10C3.63181 10 3.33333 9.40305 3.33333 8.66667C3.33333 7.93029 3.63181 7.33333 4 7.33333C4.36819 7.33333 4.66667 7.93029 4.66667 8.66667Z" fill="currentColor"></path></mask><g mask="url(#mask0_4502_4387)"><rect width="15.9998" height="16" fill="currentColor"></rect></g></svg> ${getLimitedTotal().toLocaleString()}</span></div>
+                <div class="channel-logpower"><a href="https://game.naver.com/profile#channel_power" target="_blank">채널별 통나무 파워</a></div>
+                <div class="logpower-limit-notice"></div>
+                <div class="logpower-info">100 파워 이상 보유한 채널만 표시합니다.<br>비활성화된 채널은 회색으로 표시됩니다.</div>
+                <div class="channel-logpower-table">
+                    ${renderLogPowerRows(getLimitedData())}
                 </div>`;
-        table.querySelector(".channel-logpower").appendChild(refreshBtn);
+        const channelLogPower = table.querySelector(".channel-logpower");
+        const limitNoticeEl = table.querySelector(".logpower-limit-notice");
+        const logPowerInfo = table.querySelector(".logpower-info");
+        const rowsContainer = table.querySelector(".channel-logpower-table");
+        const topTotal = table.querySelector(".logpower-top-total");
+        const topTotalValue = topTotal.querySelector("span");
+
+        const metaControlWrap = document.createElement("div");
+        metaControlWrap.className = "logpower-meta-control-wrap";
+
+        const metaWrap = document.createElement("div");
+        metaWrap.className = "logpower-meta-wrap";
+
+        const limitControl = document.createElement("label");
+        limitControl.className = "logpower-limit-control";
+        limitControl.textContent = "TOP";
+
+        const limitStepper = document.createElement("div");
+        limitStepper.className = "logpower-limit-stepper";
+
+        const decrementBtn = document.createElement("button");
+        decrementBtn.className = "logpower-limit-step-button";
+        decrementBtn.type = "button";
+        decrementBtn.setAttribute("aria-label", "표시 개수 줄이기");
+        decrementBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5.25 7.75L10 12.5L14.75 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+        const limitInput = document.createElement("input");
+        limitInput.type = "number";
+        limitInput.min = "5";
+        limitInput.max = "99";
+        limitInput.step = "1";
+        limitInput.value = String(currentLimit);
+        limitInput.setAttribute("aria-label", "통나무 파워 표시 개수");
+
+        const incrementBtn = document.createElement("button");
+        incrementBtn.className = "logpower-limit-step-button";
+        incrementBtn.type = "button";
+        incrementBtn.setAttribute("aria-label", "표시 개수 늘리기");
+        incrementBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5.25 12.25L10 7.5L14.75 12.25" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+        const limitSpinner = document.createElement("div");
+        limitSpinner.className = "logpower-limit-spinner";
+        limitSpinner.append(incrementBtn, decrementBtn);
+        limitStepper.append(limitInput, limitSpinner);
+        limitControl.appendChild(limitStepper);
+        channelLogPower.appendChild(refreshBtn);
+        metaWrap.append(channelLogPower, limitNoticeEl, logPowerInfo);
+        metaControlWrap.append(metaWrap, limitControl);
+        rowsContainer.before(metaControlWrap);
+
+        function updateLimitedView(
+          nextLimit,
+          syncInput = true,
+          persist = false,
+        ) {
+          currentLimit = clampLogPowerPopupLimit(nextLimit);
+          if (syncInput) {
+            limitInput.value = String(currentLimit);
+          }
+          if (persist) {
+            setStoredLogPowerPopupLimit(currentLimit);
+          }
+          decrementBtn.disabled = currentLimit <= 5;
+          incrementBtn.disabled = currentLimit >= 99;
+
+          const limitedData = getLimitedData();
+          topTotal.firstChild.textContent = `TOP ${currentLimit} 통나무 파워 합계 `;
+          setPowerValue(topTotalValue, getLimitedTotal());
+          limitNoticeEl.textContent =
+            sorted.length > currentLimit
+              ? `상위 ${currentLimit}개 채널만 표시합니다.`
+              : `표시 가능한 ${limitedData.length}개 채널을 모두 표시합니다.`;
+          rowsContainer.innerHTML = renderLogPowerRows(limitedData);
+        }
+
+        limitInput.addEventListener("input", () => {
+          if (limitInput.value === "") return;
+          updateLimitedView(limitInput.value, false, true);
+        });
+        limitInput.addEventListener("change", () => {
+          updateLimitedView(limitInput.value, true, true);
+        });
+        decrementBtn.addEventListener("click", () => {
+          updateLimitedView(currentLimit - 1, true, true);
+        });
+        incrementBtn.addEventListener("click", () => {
+          updateLimitedView(currentLimit + 1, true, true);
+        });
+
+        updateLimitedView(currentLimit);
         popupContainer.appendChild(table);
       })
       .catch((err) => {
@@ -1151,8 +1282,34 @@ function showLogPowerBalancesPopup(limit = Infinity) {
   let lastFetchedAt = 0;
   let lastRenderedHref = null; // URL 변경 감지를 위해 마지막으로 렌더링된 URL 저장
   let lastHrefForPolling = location.href;
+  const LOGPOWER_REFRESH_MIN_MS = 30_000;
+  const LOGPOWER_REFRESH_DEFAULT_MS = 60_000;
+  const LOGPOWER_REFRESH_MAX_MS = 120_000;
+  let logPowerRefreshMs = LOGPOWER_REFRESH_DEFAULT_MS;
+  let logPowerFetchSuccessStreak = 0;
 
   const KR = (n) => (Number(n) || 0).toLocaleString("ko-KR");
+  const formatCompactPower = (value) => {
+    const n = Number(value) || 0;
+    if (n < 10_000) return KR(n);
+
+    const units = [
+      { value: 100_000_000, suffix: "억" },
+      { value: 10_000, suffix: "만" },
+    ];
+    const unit = units.find((x) => n >= x.value);
+    const scaled = n / unit.value;
+    const digits = 1;
+    const factor = 10;
+    const display = Math.floor(scaled * factor) / factor;
+    return `${display.toFixed(digits).replace(/\.0$/, "")}${unit.suffix}`;
+  };
+  const formatTimer = (ms) => {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
   const now = () => Date.now();
   const extractChannelId = () => {
     const m = location.href.match(/\/live\/([a-f0-9]{32})/i);
@@ -1161,17 +1318,58 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
   const DISP_KEY = "isLogPowerDisplayPaused";
   let displayPaused = false;
+  let watchHourTimerChannelId = null;
+  let watchHourTimerEndsAt = 0;
+  let watchHourTimerInterval = null;
+  let watchHourClaimedLabelTimer = null;
+  let watchHourRestoreChannelId = null;
+  let watchHourRestoreInFlight = false;
+  let watchRewardTrackingChannelId = null;
+  let watchRewardTrackingInFlight = false;
+  let watchRewardStatusRestoreChannelId = null;
+  let watchRewardStatusRestoreInFlight = false;
 
   function removeBadge() {
     const b = document.getElementById(BADGE_ID);
     if (b && b.parentNode) b.parentNode.removeChild(b);
   }
 
+  function markLogPowerFetchSuccess() {
+    logPowerFetchSuccessStreak += 1;
+    if (
+      logPowerFetchSuccessStreak >= 2 &&
+      logPowerRefreshMs > LOGPOWER_REFRESH_MIN_MS
+    ) {
+      logPowerRefreshMs = Math.max(
+        LOGPOWER_REFRESH_MIN_MS,
+        logPowerRefreshMs - 15_000,
+      );
+      logPowerFetchSuccessStreak = 0;
+    }
+  }
+
+  function markLogPowerFetchFailure(error) {
+    logPowerFetchSuccessStreak = 0;
+    const message = String(error || "").toLowerCase();
+    const shouldBackoff =
+      message.includes("429") ||
+      message.includes("408") ||
+      message.includes("425") ||
+      /\b5\d\d\b/.test(message);
+    const nextRefreshMs = shouldBackoff
+      ? logPowerRefreshMs * 2
+      : logPowerRefreshMs + 30_000;
+    logPowerRefreshMs = Math.min(
+      LOGPOWER_REFRESH_MAX_MS,
+      Math.max(LOGPOWER_REFRESH_DEFAULT_MS, nextRefreshMs),
+    );
+  }
+
   async function fetchChannelLogPower() {
-    // 60초 캐시 + URL이 동일할 때만 캐시 사용
+    // 적응형 캐시 + URL이 동일할 때만 캐시 사용
     if (
       cachedAmount != null &&
-      now() - lastFetchedAt < 60_000 &&
+      now() - lastFetchedAt < logPowerRefreshMs &&
       location.href === lastRenderedHref
     ) {
       return cachedAmount;
@@ -1185,20 +1383,25 @@ function showLogPowerBalancesPopup(limit = Infinity) {
         .sendMessage({ type: "GET_CHANNEL_LOG_POWER", channelId })
         .catch(() => null);
 
-      if (!res?.success) return null;
+      if (!res?.success) {
+        markLogPowerFetchFailure(res?.error);
+        return cachedAmount;
+      }
 
       const amt = Number(res.content?.amount) || 0;
       cachedAmount = amt;
       lastFetchedAt = now();
       lastRenderedHref = location.href; // 캐시와 함께 현재 URL 저장
+      markLogPowerFetchSuccess();
       return amt;
     } catch (error) {
-      if (error.message.includes("Extension context invalidated")) {
+      markLogPowerFetchFailure(error?.message || error);
+      if (String(error?.message || "").includes("Extension context invalidated")) {
         console.log(
           "확장 프로그램이 업데이트되어 이전 content script의 활동을 중지합니다. 페이지를 새로고침하세요.",
         );
       }
-      return null;
+      return cachedAmount;
     }
   }
 
@@ -1238,7 +1441,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
       badge.id = BADGE_ID;
 
       badge.innerHTML =
-        '<svg width="20" height="20" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="live_chatting_popup_my_profile_icon_power__laD+4"><mask id="mask0_4502_4387" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" style="mask-type: alpha;"><path d="M6.79453 2.43359C7.09254 2.43374 7.36838 2.58075 7.53476 2.82161L7.59921 2.93099L8.91692 5.56641H5.98333L5.82643 5.25326L5.06796 3.73568C4.76891 3.13737 5.20381 2.43379 5.87265 2.43359H6.79453Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1484 4.43359C13.0053 4.43359 13.6561 5.0624 14.0599 5.80273C14.4754 6.5645 14.7148 7.57802 14.7148 8.66667C14.7148 9.75531 14.4754 10.7688 14.0599 11.5306C13.6561 12.2709 13.0053 12.8997 12.1484 12.8997H4C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359H12.1484ZM4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641ZM6.52604 9.43359C6.48364 9.83162 6.40829 10.2124 6.30404 10.5664H11.6667L11.7246 10.5638C12.0104 10.5348 12.2331 10.2934 12.2331 10C12.2331 9.7066 12.0104 9.46522 11.7246 9.4362L11.6667 9.43359H6.52604ZM6.28385 6.70052C6.39253 7.05354 6.47186 7.43444 6.51823 7.83333H7.33333L7.39128 7.83073C7.67694 7.80172 7.89962 7.56022 7.89974 7.26693C7.89974 6.97353 7.67701 6.73215 7.39128 6.70312L7.33333 6.70052H6.28385ZM9.60026 6.70052C9.2873 6.70052 9.0332 6.95397 9.0332 7.26693C9.03333 7.57978 9.28738 7.83333 9.60026 7.83333H13.5228C13.4637 7.41061 13.3619 7.02765 13.2298 6.70052H9.60026Z" fill="currentColor"></path><path d="M5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667ZM6.56641 8.66667C6.56641 9.75531 6.32696 10.7688 5.91146 11.5306C5.50764 12.2709 4.85686 12.8997 4 12.8997C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359C4.85686 4.43359 5.50764 5.0624 5.91146 5.80273C6.32696 6.5645 6.56641 7.57802 6.56641 8.66667Z" fill="currentColor"></path><path d="M4.66667 8.66667C4.66667 9.40305 4.36819 10 4 10C3.63181 10 3.33333 9.40305 3.33333 8.66667C3.33333 7.93029 3.63181 7.33333 4 7.33333C4.36819 7.33333 4.66667 7.93029 4.66667 8.66667Z" fill="currentColor"></path></mask><g mask="url(#mask0_4502_4387)"><rect width="15.9998" height="16" fill="currentColor"></rect></g></svg> <b class="conchzzk-logpower-text" style="font-size:12px">-</b>';
+        '<svg width="14" height="14" style="margin-right: auto;" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="live_chatting_popup_my_profile_icon_power__laD+4"><mask id="mask0_4502_4387" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16" style="mask-type: alpha;"><path d="M6.79453 2.43359C7.09254 2.43374 7.36838 2.58075 7.53476 2.82161L7.59921 2.93099L8.91692 5.56641H5.98333L5.82643 5.25326L5.06796 3.73568C4.76891 3.13737 5.20381 2.43379 5.87265 2.43359H6.79453Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1484 4.43359C13.0053 4.43359 13.6561 5.0624 14.0599 5.80273C14.4754 6.5645 14.7148 7.57802 14.7148 8.66667C14.7148 9.75531 14.4754 10.7688 14.0599 11.5306C13.6561 12.2709 13.0053 12.8997 12.1484 12.8997H4C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359H12.1484ZM4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641ZM6.52604 9.43359C6.48364 9.83162 6.40829 10.2124 6.30404 10.5664H11.6667L11.7246 10.5638C12.0104 10.5348 12.2331 10.2934 12.2331 10C12.2331 9.7066 12.0104 9.46522 11.7246 9.4362L11.6667 9.43359H6.52604ZM6.28385 6.70052C6.39253 7.05354 6.47186 7.43444 6.51823 7.83333H7.33333L7.39128 7.83073C7.67694 7.80172 7.89962 7.56022 7.89974 7.26693C7.89974 6.97353 7.67701 6.73215 7.39128 6.70312L7.33333 6.70052H6.28385ZM9.60026 6.70052C9.2873 6.70052 9.0332 6.95397 9.0332 7.26693C9.03333 7.57978 9.28738 7.83333 9.60026 7.83333H13.5228C13.4637 7.41061 13.3619 7.02765 13.2298 6.70052H9.60026Z" fill="currentColor"></path><path d="M5.43359 8.66667C5.43359 7.73027 5.22502 6.91036 4.91667 6.34505C4.59666 5.75848 4.24767 5.56641 4 5.56641C3.75232 5.56641 3.40334 5.75848 3.08333 6.34505C2.77498 6.91036 2.56641 7.73027 2.56641 8.66667C2.56641 9.60306 2.77498 10.423 3.08333 10.9883C3.40334 11.5749 3.75232 11.7669 4 11.7669C4.24767 11.7669 4.59666 11.5749 4.91667 10.9883C5.22502 10.423 5.43359 9.60306 5.43359 8.66667ZM6.56641 8.66667C6.56641 9.75531 6.32696 10.7688 5.91146 11.5306C5.50764 12.2709 4.85686 12.8997 4 12.8997C3.14314 12.8997 2.49236 12.2709 2.08854 11.5306C1.67304 10.7688 1.43359 9.75531 1.43359 8.66667C1.43359 7.57802 1.67304 6.5645 2.08854 5.80273C2.49236 5.0624 3.14314 4.43359 4 4.43359C4.85686 4.43359 5.50764 5.0624 5.91146 5.80273C6.32696 6.5645 6.56641 7.57802 6.56641 8.66667Z" fill="currentColor"></path><path d="M4.66667 8.66667C4.66667 9.40305 4.36819 10 4 10C3.63181 10 3.33333 9.40305 3.33333 8.66667C3.33333 7.93029 3.63181 7.33333 4 7.33333C4.36819 7.33333 4.66667 7.93029 4.66667 8.66667Z" fill="currentColor"></path></mask><g mask="url(#mask0_4502_4387)"><rect width="15.9998" height="16" fill="currentColor"></rect></g></svg> <b class="conchzzk-logpower-text">-</b><span class="conchzzk-logpower-progress" hidden><svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3.25a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M10 6.6v3.8l2.55 1.55" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>적립 중</span></span><span class="conchzzk-logpower-timer" hidden><svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3.25a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M10 6.6v3.8l2.55 1.55" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="conchzzk-logpower-claimed" hidden>획득</span><span class="conchzzk-logpower-time">60:00</span></span>';
 
       badge.onclick = function (e) {
         e.preventDefault();
@@ -1249,7 +1452,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
           switch (action) {
             case "popup":
-              showLogPowerBalancesPopup(5); // 5개만 보여주는 함수 호출
+              showLogPowerBalancesPopup();
               break;
             case "navigate":
               // 통나무 파워 페이지로 이동
@@ -1274,6 +1477,240 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     return badge;
   }
 
+  function isBadgeMutation(mutation) {
+    const badge = document.getElementById(BADGE_ID);
+    if (!badge) return false;
+
+    if (badge.contains(mutation.target)) return true;
+
+    const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
+    return nodes.some((node) => node === badge || badge.contains(node));
+  }
+
+  function updateAmountText(badge, amount) {
+    const el = badge?.querySelector(".conchzzk-logpower-text");
+    if (!el) return;
+
+    const txt = formatCompactPower(amount);
+    if (el.textContent !== txt) el.textContent = txt;
+    el.title = KR(amount);
+  }
+
+  function setTimerVisible(badge, visible) {
+    const timer = badge?.querySelector(".conchzzk-logpower-timer");
+    if (timer) timer.hidden = !visible;
+  }
+
+  function setWatchRewardProgressVisible(badge, visible) {
+    const progress = badge?.querySelector(".conchzzk-logpower-progress");
+    if (progress) progress.hidden = !visible;
+  }
+
+  function findChatProfileUrl(channelId) {
+    if (!channelId || typeof performance?.getEntriesByType !== "function") {
+      return "";
+    }
+
+    const entries = performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .reverse();
+
+    for (const name of entries) {
+      try {
+        const url = new URL(name);
+        if (
+          url.origin !== "https://comm-api.game.naver.com" ||
+          !url.pathname.includes("/profile") ||
+          url.searchParams.get("streamingChannelId") !== channelId ||
+          url.searchParams.get("chatType") !== "STREAMING"
+        ) {
+          continue;
+        }
+        return url.toString();
+      } catch (_) {}
+    }
+    return "";
+  }
+
+  function applyWatchRewardStatus(status) {
+    if (!status?.channelId) return;
+
+    const here = extractChannelId();
+    if (!here || here !== status.channelId) return;
+
+    const active = !!status.active;
+    const badge = document.getElementById(BADGE_ID);
+    const hourTimerVisible =
+      watchHourTimerChannelId === status.channelId &&
+      watchHourTimerEndsAt > Date.now();
+    setWatchRewardProgressVisible(badge, active && !hourTimerVisible);
+  }
+
+  function stopLogPowerLiveIndicators(channelId) {
+    const here = extractChannelId();
+    if (!channelId || !here || here !== channelId) return;
+
+    watchHourTimerChannelId = null;
+    watchHourTimerEndsAt = 0;
+    watchHourRestoreChannelId = channelId;
+    watchRewardTrackingChannelId = channelId;
+    watchRewardStatusRestoreChannelId = channelId;
+
+    if (watchHourTimerInterval) {
+      clearInterval(watchHourTimerInterval);
+      watchHourTimerInterval = null;
+    }
+    if (watchHourClaimedLabelTimer) {
+      clearTimeout(watchHourClaimedLabelTimer);
+      watchHourClaimedLabelTimer = null;
+    }
+
+    const badge = document.getElementById(BADGE_ID);
+    setTimerVisible(badge, false);
+    setWatchRewardProgressVisible(badge, false);
+    const claimedEl = badge?.querySelector(".conchzzk-logpower-claimed");
+    if (claimedEl) claimedEl.hidden = true;
+  }
+
+  function resetLogPowerDisplayRestoreState() {
+    watchHourRestoreChannelId = null;
+    watchRewardTrackingChannelId = null;
+    watchRewardStatusRestoreChannelId = null;
+  }
+
+  function renderWatchHourTimer() {
+    if (!watchHourTimerEndsAt) return;
+
+    const badge = document.getElementById(BADGE_ID);
+    const remaining = watchHourTimerEndsAt - Date.now();
+    if (remaining <= 0) {
+      watchHourTimerChannelId = null;
+      watchHourTimerEndsAt = 0;
+      if (watchHourTimerInterval) {
+        clearInterval(watchHourTimerInterval);
+        watchHourTimerInterval = null;
+      }
+      setTimerVisible(badge, false);
+      return;
+    }
+    if (!badge) return;
+
+    const here = extractChannelId();
+    if (here !== watchHourTimerChannelId) {
+      setTimerVisible(badge, false);
+      return;
+    }
+
+    const timeEl = badge.querySelector(".conchzzk-logpower-time");
+    if (timeEl) timeEl.textContent = formatTimer(remaining);
+    setTimerVisible(badge, true);
+    setWatchRewardProgressVisible(badge, false);
+  }
+
+  function startWatchHourTimer(
+    channelId,
+    startedAt = Date.now(),
+    { endsAt = startedAt + 60 * 60 * 1000, showClaimed = true } = {},
+  ) {
+    if (!channelId) return;
+
+    watchHourTimerChannelId = channelId;
+    watchHourTimerEndsAt = endsAt;
+    watchHourRestoreChannelId = channelId;
+
+    const host = document.querySelector(CONTAINER_SEL);
+    if (host && !displayPaused && showClaimed) {
+      const badge = upsertBadge(host);
+      const claimedEl = badge.querySelector(".conchzzk-logpower-claimed");
+      if (claimedEl) {
+        claimedEl.hidden = false;
+        if (watchHourClaimedLabelTimer) {
+          clearTimeout(watchHourClaimedLabelTimer);
+        }
+        watchHourClaimedLabelTimer = setTimeout(() => {
+          claimedEl.hidden = true;
+          watchHourClaimedLabelTimer = null;
+        }, 5000);
+      }
+    }
+
+    setWatchRewardProgressVisible(document.getElementById(BADGE_ID), false);
+    if (watchHourTimerInterval) clearInterval(watchHourTimerInterval);
+    renderWatchHourTimer();
+    watchHourTimerInterval = setInterval(renderWatchHourTimer, 1000);
+  }
+
+  async function startWatchRewardTracking(initialAmount) {
+    const channelId = extractChannelId();
+    if (!channelId || !Number.isFinite(Number(initialAmount))) return;
+    if (watchRewardTrackingInFlight) return;
+    if (watchRewardTrackingChannelId === channelId) return;
+
+    watchRewardTrackingInFlight = true;
+    try {
+      const res = await chrome.runtime
+        .sendMessage({
+          type: "START_LOG_POWER_WATCH_REWARD_TRACKING",
+          channelId,
+          initialAmount: Number(initialAmount),
+          profileUrl: findChatProfileUrl(channelId),
+        })
+        .catch(() => null);
+      watchRewardTrackingChannelId = channelId;
+      if (res?.status) applyWatchRewardStatus(res.status);
+    } finally {
+      watchRewardTrackingInFlight = false;
+    }
+  }
+
+  async function restoreWatchRewardStatus() {
+    const channelId = extractChannelId();
+    if (!channelId || watchRewardStatusRestoreInFlight) return;
+    if (watchRewardStatusRestoreChannelId === channelId) return;
+
+    watchRewardStatusRestoreInFlight = true;
+    watchRewardStatusRestoreChannelId = channelId;
+    try {
+      const res = await chrome.runtime
+        .sendMessage({
+          type: "GET_LOG_POWER_WATCH_REWARD_STATUS",
+          channelId,
+        })
+        .catch(() => null);
+      if (res?.status) applyWatchRewardStatus(res.status);
+    } finally {
+      watchRewardStatusRestoreInFlight = false;
+    }
+  }
+
+  async function restoreWatchHourTimer() {
+    const channelId = extractChannelId();
+    if (!channelId || watchHourRestoreInFlight) return;
+    if (watchHourRestoreChannelId === channelId) return;
+
+    watchHourRestoreInFlight = true;
+    watchHourRestoreChannelId = channelId;
+    try {
+      const res = await chrome.runtime
+        .sendMessage({
+          type: "GET_LOG_POWER_WATCH_HOUR_TIMER",
+          channelId,
+        })
+        .catch(() => null);
+      const timer = res?.timer;
+      const endsAt = Number(timer?.endsAt);
+      if (!timer || !Number.isFinite(endsAt) || endsAt <= Date.now()) return;
+
+      startWatchHourTimer(channelId, Number(timer.startedAt) || Date.now(), {
+        endsAt,
+        showClaimed: false,
+      });
+    } finally {
+      watchHourRestoreInFlight = false;
+    }
+  }
+
   async function render() {
     if (displayPaused) {
       // 표시 끔이면 배지 제거 후 종료
@@ -1293,10 +1730,12 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     const amt = await fetchChannelLogPower();
 
     if (amt != null) {
-      const txt = KR(amt);
-      const el = badge.querySelector(".conchzzk-logpower-text");
-      if (el && el.textContent !== txt) el.textContent = txt;
+      updateAmountText(badge, amt);
+      startWatchRewardTracking(amt);
     }
+    restoreWatchHourTimer();
+    restoreWatchRewardStatus();
+    renderWatchHourTimer();
     applyTooltip();
   }
 
@@ -1304,8 +1743,9 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     if (mo) return;
     if (displayPaused) return;
 
-    mo = new MutationObserver(() => {
+    mo = new MutationObserver((mutations) => {
       if (isConChzzkInsertion) return;
+      if (mutations.length && mutations.every(isBadgeMutation)) return;
       // 렌더 함수 내에서 URL 체크를 하므로, 여기서는 렌더만 호출
       render();
     });
@@ -1322,6 +1762,16 @@ function showLogPowerBalancesPopup(limit = Infinity) {
   }
 
   chrome.runtime.onMessage.addListener((request, _sender, _sendResponse) => {
+    if (request?.type === "LOG_POWER_WATCH_REWARD_STATUS") {
+      applyWatchRewardStatus(request);
+      return;
+    }
+
+    if (request?.type === "LOG_POWER_LIVE_ENDED") {
+      stopLogPowerLiveIndicators(request.channelId);
+      return;
+    }
+
     if (request?.type !== "CHANNEL_LOG_POWER_UPDATED") return;
 
     // 현재 탭이 보고 있는 채널과 일치할 때만 동작
@@ -1337,10 +1787,17 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     const host = document.querySelector(CONTAINER_SEL);
     if (host) {
       const badge = upsertBadge(host);
-      const el = badge.querySelector(".conchzzk-logpower-text");
-      if (el && typeof request.newAmount === "number") {
-        el.textContent = (request.newAmount || 0).toLocaleString("ko-KR");
+      if (typeof request.newAmount === "number") {
+        updateAmountText(badge, request.newAmount);
       }
+    }
+
+    if (request.watchHourClaimed) {
+      const startedAt = Number(request.watchHourTimerStartedAt) || Date.now();
+      const endsAt = Number(request.watchHourTimerEndsAt);
+      startWatchHourTimer(request.channelId, startedAt, {
+        endsAt: Number.isFinite(endsAt) ? endsAt : startedAt + 60 * 60 * 1000,
+      });
     }
 
     // 3) 서버 반영이 느릴 수 있으니 재검증 렌더(즉시 + 약간 딜레이 둘 다 권장)
@@ -1359,6 +1816,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
       }
       removeBadge();
     } else {
+      resetLogPowerDisplayRestoreState();
       ensureObserver();
       render();
     }

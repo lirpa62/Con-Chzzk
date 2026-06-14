@@ -661,7 +661,13 @@ function applyPopupTheme(theme) {
   const isDark = nextTheme === POPUP_THEME_DARK;
   const themeToggleBtn = document.getElementById("theme-toggle-btn");
 
+  document.documentElement.dataset.theme = nextTheme;
   document.body.dataset.theme = nextTheme;
+  try {
+    localStorage.setItem(POPUP_THEME_STORAGE_KEY, nextTheme);
+  } catch (_) {
+    // Best-effort cache for first-paint theme initialization.
+  }
 
   if (themeToggleBtn) {
     themeToggleBtn.setAttribute("aria-pressed", String(isDark));
@@ -687,7 +693,7 @@ async function initializePopupTheme() {
 
   themeToggleBtn.addEventListener("click", async () => {
     const nextTheme =
-      document.body.dataset.theme === POPUP_THEME_DARK
+      document.documentElement.dataset.theme === POPUP_THEME_DARK
         ? POPUP_THEME_LIGHT
         : POPUP_THEME_DARK;
 

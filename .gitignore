@@ -302,7 +302,8 @@ FakesAssemblies/
 node_modules/
 dist/
 
-scripts/
+scripts/*
+!scripts/package-store.sh
 
 # Visual Studio 6 build log
 *.plg

@@ -29,6 +29,8 @@ const LOG_POWER_PREDICTION_API_PREFIX =
 const CHECK_ALARM_NAME = "chzzkAllCheck";
 const DAILY_OPENING_ALARM = "daily-opening";
 const SUBSCRIPTION_GIFT_STATUS_KEY = "subscriptionGiftStatus";
+const SUPPRESS_INITIAL_NOTIFICATIONS_KEY = "suppressInitialNotifications";
+const FIRST_INSTALL_CUTOFF_KEY = "firstInstallCutoffMs";
 
 const BOOKMARK_LIVE_KEY = "bookmarkLive";
 const BOOKMARK_REFRESH_ALARM = "bookmarkLiveRefresh";
@@ -1078,6 +1080,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await showUpdateBannerInOpenTabs();
     updateUnreadCountBadge().catch((error) => {
       console.warn("Failed to update unread badge after update:", error);
+    });
+  }
+
+  if (details.reason === "install") {
+    await chrome.storage.local.set({
+      [SUPPRESS_INITIAL_NOTIFICATIONS_KEY]: true,
+      [FIRST_INSTALL_CUTOFF_KEY]: Date.now(),
     });
   }
 
@@ -3251,8 +3260,12 @@ async function checkFollowedChannels() {
       "isBannerKeepPaused",
       "isPartyKeepPaused",
       "isSubscriptionGiftKeepPaused",
+      SUPPRESS_INITIAL_NOTIFICATIONS_KEY,
     ]);
     const isPaused = prevState.isPaused || false;
+    const suppressInitialNotifications =
+      prevState[SUPPRESS_INITIAL_NOTIFICATIONS_KEY] === true;
+    const effectiveIsPaused = isPaused || suppressInitialNotifications;
 
     const isLivePaused = prevState.isLivePaused || false;
     const isLiveOffPaused = prevState.isLiveOffPaused || false;
@@ -3291,7 +3304,9 @@ async function checkFollowedChannels() {
 
     // --- 분산 스케줄 ---
     const tick = await _nextTick();
-    const plan = _getTaskPlan(tick);
+    const plan = suppressInitialNotifications
+      ? { community: true, video: true, lounge: true, banner: true }
+      : _getTaskPlan(tick);
 
     const tasks = {};
     if (plan.community) {
@@ -3299,7 +3314,7 @@ async function checkFollowedChannels() {
         followingList,
         prevState.postStatus,
         notificationEnabledChannels,
-        isPaused,
+        effectiveIsPaused,
         isCommunityPaused,
         isCommunityKeepPaused,
         prevState.notificationHistory,
@@ -3312,7 +3327,7 @@ async function checkFollowedChannels() {
         notificationEnabledChannels,
         prevState.notificationHistory,
         dismissedSet,
-        isPaused,
+        effectiveIsPaused,
         isVideoPaused,
         isVideoKeepPaused,
       );
@@ -3320,7 +3335,7 @@ async function checkFollowedChannels() {
     if (plan.lounge) {
       tasks.lounge = checkLoungePosts(
         prevState.loungeStatus,
-        isPaused,
+        effectiveIsPaused,
         isLoungePaused,
         isLoungeKeepPaused,
       );
@@ -3328,7 +3343,7 @@ async function checkFollowedChannels() {
     if (plan.banner) {
       tasks.banner = checkBanners(
         prevState.seenBanners,
-        isPaused,
+        effectiveIsPaused,
         isBannerPaused,
         isBannerKeepPaused,
       );
@@ -3343,7 +3358,7 @@ async function checkFollowedChannels() {
     const liveResult = await checkLiveStatus(
       followingList,
       prevState.liveStatus,
-      isPaused,
+      effectiveIsPaused,
       isLivePaused,
       isLiveOffPaused,
       isCategoryPaused,
@@ -3367,7 +3382,7 @@ async function checkFollowedChannels() {
       liveResult.livePartyInfo,
       prevState.partyStatus,
       prevState.partyDonationStatus,
-      isPaused,
+      effectiveIsPaused,
       isPartyPaused,
       isPartyKeepPaused,
       notificationEnabledChannels,
@@ -3378,7 +3393,7 @@ async function checkFollowedChannels() {
     const predictionResult = await checkPredictionStatus(
       followingList,
       prevState.predictionStatus,
-      isPaused,
+      effectiveIsPaused,
       isPredictionPaused,
       isPredictionKeepPaused,
       notificationEnabledChannels,
@@ -3389,18 +3404,20 @@ async function checkFollowedChannels() {
     const subscriptionGiftResult = await checkSubscriptionGiftNotifications({
       notificationHistory: prevState.notificationHistory,
       dismissedSet,
-      isPaused,
+      isPaused: effectiveIsPaused,
       isSubscriptionGiftPaused,
       isSubscriptionGiftKeepPaused,
     });
 
-    try {
-      await pollLogPowerOnActiveLiveTabs(followingList);
-    } catch (e) {
-      console.warn(
-        "[log-power] poll in checkedFollowedChannels 실패:",
-        e?.message || e,
-      );
+    if (!suppressInitialNotifications) {
+      try {
+        await pollLogPowerOnActiveLiveTabs(followingList);
+      } catch (e) {
+        console.warn(
+          "[log-power] poll in checkedFollowedChannels 실패:",
+          e?.message || e,
+        );
+      }
     }
 
     const postResult = byType.post ?? {
@@ -3425,7 +3442,7 @@ async function checkFollowedChannels() {
     };
 
     // 2-1. 새로 발생한 알림들을 모두 모음
-    const newNotifications = [
+    let newNotifications = [
       ...(liveResult.notifications ?? []),
       ...(partyResult.notifications ?? []),
       ...(predictionResult.notifications ?? []),
@@ -3435,6 +3452,10 @@ async function checkFollowedChannels() {
       ...(bannerResult.notifications ?? []),
       ...(subscriptionGiftResult.notifications ?? []),
     ];
+
+    if (suppressInitialNotifications) {
+      newNotifications = [];
+    }
 
     // 2-2. 최종적으로 저장될 알림 내역을 결정
     let finalHistory = Array.isArray(prevState.notificationHistory)
@@ -3513,7 +3534,7 @@ async function checkFollowedChannels() {
     }
 
     // 3. 모든 상태와 최종 알림 내역을 한 번에 저장
-    await chrome.storage.local.set({
+    const nextStorageState = {
       liveStatus: liveResult.newStatus,
       partyStatus: partyResult.newStatus,
       partyDonationStatus: partyResult.newPartyDonationStatus,
@@ -3525,7 +3546,13 @@ async function checkFollowedChannels() {
       seenBanners: bannerResult.newStatus,
       notificationHistory: finalHistory, // 썸네일 갱신과 새 알림이 모두 반영된 최종본
       dismissedNotificationIds: dismissedList,
-    });
+    };
+
+    if (suppressInitialNotifications) {
+      nextStorageState[SUPPRESS_INITIAL_NOTIFICATIONS_KEY] = false;
+    }
+
+    await chrome.storage.local.set(nextStorageState);
 
     // 4. 새 알림이 있거나, 기존 알림에 대한 수정(패치)이 있었을 경우 배지를 업데이트
     const hasUpdates = allPatches.length > 0;
@@ -5585,14 +5612,13 @@ async function checkUploadedVideos(
               newVideoStatus[channelId] || prevVideoStatus[channelId] || {};
             const lastSeenVideoNo = lastSeenStatus.videoNo || 0;
 
-            const { firstInstallCutoffMs } = await chrome.storage.local.get(
-              "firstInstallCutoffMs",
-            );
+            const { [FIRST_INSTALL_CUTOFF_KEY]: firstInstallCutoffMs } =
+              await chrome.storage.local.get(FIRST_INSTALL_CUTOFF_KEY);
             let cutoffMs = firstInstallCutoffMs;
             if (!cutoffMs) {
-              cutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000; // 첫 설치에만 3일 컷
+              cutoffMs = Date.now();
               await chrome.storage.local.set({
-                firstInstallCutoffMs: cutoffMs,
+                [FIRST_INSTALL_CUTOFF_KEY]: cutoffMs,
               });
             }
 

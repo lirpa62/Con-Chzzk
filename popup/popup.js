@@ -6,6 +6,18 @@ const POPUP_THEME_STORAGE_KEY = "popupTheme";
 const POPUP_THEME_DARK = "dark";
 const POPUP_THEME_LIGHT = "light";
 
+// 채널 이미지 URL을 팝업(popup/ 디렉터리) 기준 경로로 정규화한다.
+// 값이 없거나, 과거 버전이 저장한 잘못된 상대경로("icon_128.png")인 경우
+// 팝업에서 보이는 "../icon_128.png"로 교정한다.
+function normalizeChannelImageUrl(url) {
+  const fallback = "../icon_128.png";
+  if (!url) return fallback;
+  if (/^https?:\/\//i.test(url)) return url; // 원격 이미지는 그대로
+  // 확장 루트의 기본 아이콘을 가리키는 다양한 표기를 팝업 기준 경로로 통일
+  if (/(^|\/)icon_128\.png$/.test(url)) return fallback;
+  return url;
+}
+
 const allSVG = `<svg width="15" height="15" viewBox="0 0 355 218" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
               <rect width="355" height="218" fill="url(#pattern0_13_54)"></rect>
               <defs>
@@ -4997,9 +5009,9 @@ function createNotificationNode(
       <a class="logpower-channel-link" href="https://chzzk.naver.com/${
         c.channelId
       }" target="_blank" rel="noopener">
-        <img class="logpower-channel-img" src="${
-          c.channelImageUrl || "../icon_128.png"
-        }" loading="lazy" alt="${c.channelName}">
+        <img class="logpower-channel-img" src="${normalizeChannelImageUrl(
+          c.channelImageUrl,
+        )}" loading="lazy" alt="${c.channelName}">
         <span class="logpower-channel-name" title="${c.channelName}">${
         c.channelName
       }</span>

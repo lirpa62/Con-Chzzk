@@ -1900,6 +1900,20 @@ async function fetchLiveDetail(channelId) {
   return content;
 }
 
+// GET /service/v1/channels/{channelId} : 라이브 여부와 무관하게 채널 기본 정보 조회.
+// fetchLiveDetail은 오프라인 채널에서 실패할 수 있어, 이름/이미지 폴백용으로 사용.
+async function fetchChannelInfo(channelId) {
+  const url = `${CHZZK_CHANNELS_API_URL_PREFIX}/${channelId}?b=${Date.now()}`;
+  const response = await fetchWithRetry(url, { maxRetryAfter: 120_000 });
+  const data = await response.json();
+  if (data.code !== 200) {
+    throw new Error(
+      `Channel info fetch failed with code ${data.code}: ${data.message}`,
+    );
+  }
+  return data.content || null;
+}
+
 /**
  * partyNo를 이용해 파티의 모든 정보를 가져오는 함수 (기존 fetchAllPartyMembers 대체)
  * @param {string} partyNo - 파티 번호
@@ -2020,47 +2034,50 @@ async function fetchClaimListMeta(channelId) {
   return byType;
 }
 
-// followingList에서 channelName 찾기 → 없으면 fetchLiveDetail로 조회
-async function resolveChannelName(channelId, followingList) {
+// channelId로 이름/이미지를 한 번에 조회.
+// 1) followingList 우선 → 2) fetchChannelInfo(라이브 무관) → 3) fetchLiveDetail.
+// 찾지 못하면 빈 값을 반환(폴백은 각 소비처가 컨텍스트에 맞게 적용).
+async function resolveChannelMeta(channelId, followingList) {
+  let name = "";
+  let imageUrl = "";
+
   try {
     if (Array.isArray(followingList)) {
       const hit = followingList.find(
         (it) => it?.channel?.channelId === channelId,
       );
-      if (hit?.channel?.channelName) return hit.channel.channelName;
+      if (hit?.channel?.channelName) name = hit.channel.channelName;
+      if (hit?.channel?.channelImageUrl)
+        imageUrl = hit.channel.channelImageUrl;
     }
   } catch {}
-  try {
-    if (typeof fetchLiveDetail === "function") {
+
+  if (!name || !imageUrl) {
+    try {
+      const info = await fetchChannelInfo(channelId);
+      if (info) {
+        if (!name) name = info.channelName || "";
+        if (!imageUrl) imageUrl = info.channelImageUrl || "";
+      }
+    } catch {}
+  }
+
+  if (!name || !imageUrl) {
+    try {
       const detail = await fetchLiveDetail(channelId);
-      // 구현에 따라 경로가 다를 수 있어 방어적으로 탐색
-      return detail?.channel?.channelName || "알 수 없음";
-    }
-  } catch {}
-  return "알 수 없음";
+      const ch = detail?.channel;
+      if (ch) {
+        if (!name) name = ch.channelName || "";
+        if (!imageUrl) imageUrl = ch.channelImageUrl || "";
+      }
+    } catch {}
+  }
+
+  return { name, imageUrl };
 }
 
-// followingList에서 channelImageUrl 찾기 → 없으면 fetchLiveDetail로 조회
-async function resolveChannelImageUrl(channelId, followingList) {
-  try {
-    if (Array.isArray(followingList)) {
-      const hit = followingList.find(
-        (it) => it?.channel?.channelId === channelId,
-      );
-      const img = hit?.channel?.channelImageUrl;
-      if (img) return img;
-    }
-  } catch {}
-  try {
-    if (typeof fetchLiveDetail === "function") {
-      const d = await fetchLiveDetail(channelId);
-      return d?.channel?.channelImageUrl || "";
-    }
-  } catch {}
-  return "";
-}
-
-// 매우 단순한 메모리 캐시 (10분 TTL)
+// 매우 단순한 메모리 캐시 (10분 TTL). 단, 이름/이미지를 못 구한 경우는
+// 캐시하지 않아, 데이터가 준비되면 다음 호출에서 다시 조회하도록 한다.
 const channelMetaCache = new Map(); // channelId -> { name, imageUrl, expiresAt }
 
 async function getChannelMeta(channelId, followingList) {
@@ -2068,14 +2085,16 @@ async function getChannelMeta(channelId, followingList) {
   const cached = channelMetaCache.get(channelId);
   if (cached && cached.expiresAt > now) return cached;
 
-  const [name, imageUrlRaw] = await Promise.all([
-    resolveChannelName(channelId, followingList).catch(() => "알 수 없음"),
-    resolveChannelImageUrl(channelId, followingList).catch(() => ""),
-  ]);
+  const { name, imageUrl } = await resolveChannelMeta(
+    channelId,
+    followingList,
+  ).catch(() => ({ name: "", imageUrl: "" }));
 
-  const imageUrl = imageUrlRaw || "icon_128.png"; // 알림/히스토리 모두에서 동일 폴백
-  const meta = { name, imageUrl, expiresAt: now + 10 * 60 * 1000 };
-  channelMetaCache.set(channelId, meta);
+  // 이름과 이미지를 모두 확보했을 때만 캐시(불완전한 값으로 10분간 고정 방지).
+  const meta = { name, imageUrl };
+  if (name && imageUrl) {
+    channelMetaCache.set(channelId, { ...meta, expiresAt: now + 10 * 60 * 1000 });
+  }
   return meta;
 }
 
@@ -7999,12 +8018,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       const {
         channelId,
-        channelName,
-        channelImageUrl,
         results = [],
         claims = [],
         baseTotalAmount = 0,
       } = request;
+      let { channelName, channelImageUrl } = request;
+
+      // content.js에서 넘어온 메타가 비어있을 수 있으므로(채널 진입 직후 타이밍 등)
+      // 히스토리/원장/알림 기록 직전에 한 번 더 보강한다.
+      if (!channelName || !channelImageUrl) {
+        const meta = await getChannelMeta(channelId).catch(() => null);
+        if (meta) {
+          channelName = channelName || meta.name;
+          channelImageUrl = channelImageUrl || meta.imageUrl;
+        }
+      }
 
       // 성공 항목만 합계 계산
       const succeeded = results.filter((r) => r.ok);

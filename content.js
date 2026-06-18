@@ -19,6 +19,217 @@
 })();
 
 /**
+ * === 구조 기반 DOM 셀렉터 헬퍼 ===
+ * 치지직이 의미있는 클래스명(live_chatting_input_donation__ 등)에서
+ * 빌드마다 바뀌는 난독화 클래스명(_donation_1xxwu_132 등)으로 전환했기 때문에,
+ * 클래스명 해시에 의존하지 않고 DOM 구조/속성/텍스트로 요소를 찾는다.
+ */
+window.__conchzzkDom = (() => {
+  const textOf = (el) => (el?.textContent || "").trim();
+
+  // 버튼의 "보이는" 텍스트. 접근성 전용 라벨(.blind, .sr-only 등)을 제외해서,
+  // <span class="blind">채널명</span>팔로잉 같은 구조에서도 "팔로잉"만 얻는다.
+  const visibleTextOf = (el) => {
+    if (!el) return "";
+    const clone = el.cloneNode(true);
+    clone
+      .querySelectorAll(".blind, .sr-only, [class*='blind']")
+      .forEach((n) => n.remove());
+    return (clone.textContent || "").trim();
+  };
+
+  // "팔로잉"/"팔로우" 버튼인지 판별 (구독 선물 등 다른 버튼과 혼동 방지).
+  const isFollowButton = (b) => {
+    const t = visibleTextOf(b);
+    return t === "팔로잉" || t === "팔로우";
+  };
+
+  // 채팅 입력 영역 컨테이너 (textarea가 들어있는 입력 박스)
+  // 구버전: [class*=live_chatting_input_area__]
+  function findChatInputArea() {
+    const ta = document.querySelector(
+      'textarea[placeholder*="채팅"], aside textarea',
+    );
+    if (!ta) return null;
+    // textarea를 감싸면서 후원/채팅 버튼 영역(_tools)을 형제로 갖는 최상위 입력 박스
+    let node = ta.parentElement;
+    while (node && node !== document.body) {
+      // 입력 줄(_container)과 도구 줄(_tools)을 모두 자식으로 갖는 박스를 찾는다
+      const hasDonation = !!findDonationContainer(node);
+      if (hasDonation && node.contains(ta)) return node;
+      node = node.parentElement;
+    }
+    return ta.closest("aside") || ta.parentElement;
+  }
+
+  // "후원하기" 버튼을 품은 도구 줄(_tools) 안의 후원 컨테이너(_donation).
+  // 통나무 파워 뱃지가 append 되는 host.
+  // 구버전: [class*=live_chatting_input_donation__]
+  function findDonationContainer(root = document) {
+    // 1) "후원하기" 텍스트를 가진 버튼을 찾는다
+    const buttons = root.querySelectorAll("button");
+    for (const btn of buttons) {
+      if (textOf(btn).startsWith("후원하기")) {
+        // 후원하기 버튼과 후원 액션 버튼들을 감싸는 가장 가까운 div
+        const donation = btn.parentElement;
+        if (donation && donation.tagName === "DIV") return donation;
+        return btn.closest("div");
+      }
+    }
+    return null;
+  }
+
+  // 1시간 시청 보상(통나무 파워 배달) 팝업의 "받기" 버튼.
+  // 신버전 DOM: <div._container><button._button><span>...배달 완료!</span>
+  //              <svg._icon_power_>... 받기</button></div>
+  // 클래스명이 난독화되므로 텍스트/아이콘 구조로 식별하고, 구버전 클래스는 폴백.
+  function findPowerButton(root = document) {
+    // 1) 구버전 클래스 폴백
+    const legacy =
+      root.querySelector("[class*=live_chatting_power_button__]") ||
+      root.querySelector("[class*='_power_button_']");
+    if (legacy) return legacy;
+
+    // 2) 신버전: 보상 문구를 가진 버튼을 텍스트로 탐색
+    const buttons = root.querySelectorAll("button");
+    for (const btn of buttons) {
+      const t = textOf(btn);
+      const hasRewardText =
+        (t.includes("받기") &&
+          (t.includes("통나무 파워") || t.includes("배달"))) ||
+        t.includes("배달 완료");
+      const hasPowerIcon = !!btn.querySelector("[class*='_icon_power_']");
+      if (hasRewardText || (t.includes("받기") && hasPowerIcon)) {
+        return btn;
+      }
+    }
+    return null;
+  }
+
+  // 채널명 텍스트 요소를 컨테이너 안에서 찾는다.
+  // 구버전: [class*='name_text__']  /  신버전: 말줄임 span(_text_dtc6c_2)
+  function findNameText(root) {
+    if (!root) return null;
+    return (
+      root.querySelector("[class*='name_text__']") ||
+      root.querySelector("[class*='_text_']") ||
+      null
+    );
+  }
+
+  // 한 카드/영역이 라이브 상태인지 (LIVE 뱃지 존재 여부)
+  // 구버전: [class*='thumbnail_badge_live__']  /  신버전: [class*='_badge_live_']
+  function hasLiveBadge(root) {
+    if (!root) return false;
+    return !!(
+      root.querySelector("[class*='thumbnail_badge_live__']") ||
+      root.querySelector("[class*='_badge_live_']")
+    );
+  }
+
+  // 팔로잉/알림/구독 버튼이 모인 액션 바를 찾는다.
+  // "팔로잉"(또는 "팔로우") 버튼과 "구독" 버튼을 형제로 갖는 컨테이너.
+  // 구버전: [class*='channel_profile_action__'] / [class*='video_information_control__']
+  function findActionBar(scope = document) {
+    const buttons = Array.from(scope.querySelectorAll("button"));
+    const followBtn = buttons.find(isFollowButton);
+    if (!followBtn) return null;
+    // 팔로우 버튼에서 위로 올라가며, 같은 컨테이너 안에 "구독" 버튼도 있는 박스를 찾는다
+    let node = followBtn.parentElement;
+    while (node && node !== document.body) {
+      const subscribe = Array.from(node.querySelectorAll("button")).some(
+        (b) => visibleTextOf(b) === "구독",
+      );
+      if (subscribe) return node;
+      node = node.parentElement;
+    }
+    // 구독 버튼이 없는 레이아웃이면 팔로우 버튼의 한 단계 위 컨테이너 사용
+    return followBtn.parentElement?.parentElement || followBtn.parentElement;
+  }
+
+  // 팔로잉 페이지의 채널 카드 목록을 찾는다.
+  // 카드 = 채널 링크(href="/{32hex}")와 "팔로잉" 버튼을 가진 항목.
+  // 구버전: [class*='channel_item_container__']
+  function findFollowingCards(scope = document) {
+    const anchors = Array.from(
+      scope.querySelectorAll('a[href^="/"]'),
+    ).filter((a) => /^\/[a-f0-9]{32}$/i.test(a.getAttribute("href") || ""));
+    const cards = new Set();
+    for (const a of anchors) {
+      // 채널 링크 + 팔로잉/알림 컨트롤을 함께 감싸는 "가장 작은" 카드 박스를 찾는다.
+      // 카드를 찾으면, 그 카드가 자신만의 팔로우 버튼을 갖는지(다른 카드까지
+      // 삼키지 않았는지) 확인하여 1개 카드만 정확히 포함하도록 한다.
+      let node = a.parentElement;
+      while (node && node !== document.body) {
+        const followBtns = Array.from(node.querySelectorAll("button")).filter(
+          isFollowButton,
+        );
+        // 팔로우 버튼을 포함하는 "가장 작은" 박스를 단일 채널 카드 후보로 본다.
+        if (followBtns.length >= 1) {
+          // 카드 내 모든 채널 링크(/{32hex} 또는 /live/{32hex})의 channelId 집합.
+          // 한 카드에는 썸네일/이름 등 같은 채널을 가리키는 링크가 여러 개 있으므로
+          // "서로 다른 채널 ID 개수"로 판단한다.
+          const ids = new Set();
+          node.querySelectorAll("a[href^='/']").forEach((x) => {
+            const m = (x.getAttribute("href") || "").match(
+              /^\/(?:live\/)?([a-f0-9]{32})/i,
+            );
+            if (m) ids.add(m[1].toLowerCase());
+          });
+          // 팔로우 버튼 1개 + 단일 채널만 포함 = 정확한 단일 카드
+          if (followBtns.length === 1 && ids.size <= 1) {
+            node.__conchzzkSeedAnchor = a;
+            cards.add(node);
+            break;
+          }
+          // 여러 채널/여러 팔로우 버튼을 삼킨 박스면 이 후보는 버린다.
+          break;
+        }
+        node = node.parentElement;
+      }
+    }
+    return Array.from(cards);
+  }
+
+  // 카드(또는 액션바) 안에서 북마크 버튼을 끼워넣을 컨트롤 영역을 찾는다.
+  function findControlInCard(card) {
+    const followBtn = Array.from(card.querySelectorAll("button")).find(
+      isFollowButton,
+    );
+    if (!followBtn) return card;
+    // 팔로우 버튼과 알림/구독 버튼을 함께 감싸는 컨트롤 박스
+    let node = followBtn.parentElement;
+    while (node && node !== card.parentElement && node !== document.body) {
+      const btnCount = node.querySelectorAll("button").length;
+      if (btnCount >= 2) return node;
+      node = node.parentElement;
+    }
+    return followBtn.parentElement || card;
+  }
+
+  // 팔로잉 페이지 상단의 탭 필터 바.
+  // 구버전: [class*='navigation_component_filter__']
+  function findFollowingFilterBar() {
+    const tab = document.querySelector('button[role="tab"]');
+    if (tab) return tab.closest('[role="tablist"]') || tab.parentElement;
+    return document.querySelector("[class*='navigation_component_filter__']");
+  }
+
+  return {
+    textOf,
+    findChatInputArea,
+    findDonationContainer,
+    findPowerButton,
+    findNameText,
+    hasLiveBadge,
+    findActionBar,
+    findFollowingCards,
+    findControlInCard,
+    findFollowingFilterBar,
+  };
+})();
+
+/**
  * 팔로우 중인 채널 중 알림이 켜져 있는 모든 채널의 알림을 OFF
  */
 async function offAllNotifications() {
@@ -206,6 +417,32 @@ async function offAllNotifications() {
   const q = (sel, root = document) => root.querySelector(sel);
   const qa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // 컨트롤 영역 안의 기존 버튼 클래스를 복제해서, 주입 버튼이 사이트 버튼과
+  // 동일한 스타일을 갖도록 한다. 치지직의 버튼 클래스명이 난독화되어 빌드마다
+  // 바뀌므로 하드코딩 대신 형제 버튼에서 그대로 가져온다.
+  function cloneSiblingButtonClass(scope) {
+    if (scope) {
+      // "팔로잉/팔로우" 버튼을 우선 복제 대상으로(아이콘 전용 버튼은 제외)
+      const buttons = Array.from(scope.querySelectorAll("button")).filter(
+        (b) => !b.classList.contains(BOOKMARK_BTN_CLASS),
+      );
+      const visibleText = (b) => {
+        const clone = b.cloneNode(true);
+        clone
+          .querySelectorAll(".blind, .sr-only, [class*='blind']")
+          .forEach((n) => n.remove());
+        return (clone.textContent || "").trim();
+      };
+      const preferred =
+        buttons.find((b) => {
+          const t = visibleText(b);
+          return t === "팔로잉" || t === "팔로우" || t === "구독";
+        }) || buttons[0];
+      if (preferred) return preferred.className;
+    }
+    return "";
+  }
+
   function makeAddBookmarkSVG() {
     return `<svg class="chzzk-bookmark-icon" width="24" height="24" style="margin-right: 3px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M16.8203 2H7.18031C5.05031 2 3.32031 3.74 3.32031 5.86V19.95C3.32031 21.75 4.61031 22.51 6.19031 21.64L11.0703 18.93C11.5903 18.64 12.4303 18.64 12.9403 18.93L17.8203 21.64C19.4003 22.52 20.6903 21.76 20.6903 19.95V5.86C20.6803 3.74 18.9503 2 16.8203 2ZM14.5003 11.4H12.7503V13.21C12.7503 13.62 12.4103 13.96 12.0003 13.96C11.5903 13.96 11.2503 13.62 11.2503 13.21V11.4H9.50031C9.09031 11.4 8.75031 11.06 8.75031 10.65C8.75031 10.24 9.09031 9.9 9.50031 9.9H11.2503V8.21C11.2503 7.8 11.5903 7.46 12.0003 7.46C12.4103 7.46 12.7503 7.8 12.7503 8.21V9.9H14.5003C14.9103 9.9 15.2503 10.24 15.2503 10.65C15.2503 11.06 14.9103 11.4 14.5003 11.4Z" fill="#292D32"/>
@@ -291,24 +528,23 @@ async function offAllNotifications() {
     return null;
   }
 
-  function resolveChannelOnCard(card) {
-    const liveA = card.querySelector('a[href^="/live/"]');
-    if (liveA) {
-      const id = getChannelIdFromLiveHref(liveA.getAttribute("href"));
-      if (id) return { channelId: id, isLive: true };
+  // 카드 범위 내에서 이 채널의 대표 링크(채널 홈 또는 라이브)를 찾는다.
+  // 채널 홈 링크(/{32hex})를 우선하고, 없으면 /live/{id} 링크를 사용.
+  // 사이드바 등 외부 영역과 섞이지 않도록 반드시 card 내부에서만 탐색.
+  function findCardChannelAnchor(card) {
+    // findFollowingCards가 기록한 대표 앵커가 있으면 그대로 사용(가장 정확).
+    if (card.__conchzzkSeedAnchor && card.contains(card.__conchzzkSeedAnchor)) {
+      return card.__conchzzkSeedAnchor;
     }
-    const channelA =
-      card.querySelector("a[class*='channel_item_wrapper__'][href^='/']") ||
-      card.querySelector("a[class*='channel_item_thumbnail__'][href^='/']");
-    if (channelA) {
-      const id = getChannelIdFromHref(channelA.getAttribute("href"));
-      if (id)
-        return {
-          channelId: id,
-          isLive: !!card.querySelector("[class*='thumbnail_badge_live__']"),
-        };
-    }
-    return { channelId: null, isLive: false };
+    const anchors = Array.from(card.querySelectorAll("a[href^='/']"));
+    const homeA = anchors.find((a) =>
+      /^\/[a-f0-9]{32}$/i.test(a.getAttribute("href") || ""),
+    );
+    if (homeA) return homeA;
+    const liveA = anchors.find((a) =>
+      /^\/live\/[a-f0-9]{32}/i.test(a.getAttribute("href") || ""),
+    );
+    return liveA || null;
   }
 
   function getChannelIdFromPage() {
@@ -318,9 +554,7 @@ async function offAllNotifications() {
 
   // 채널 프로필 상단 액션 바에 북마크 버튼 주입
   function addBookmarkButtonToChannelProfilePage() {
-    const actionWrap = document.querySelector(
-      "[class*='channel_profile_action__']",
-    );
+    const actionWrap = window.__conchzzkDom.findActionBar();
     if (!actionWrap || actionWrap.getAttribute(ATTR_MARK)) return;
 
     const channelId = getChannelIdFromHref(location.href); // /{id} 에서 id 추출
@@ -328,13 +562,10 @@ async function offAllNotifications() {
 
     actionWrap.setAttribute(ATTR_MARK, "1");
 
-    // 버튼 클래스는 액션바의 기존 버튼과 동일한 스타일을 최대한 복제
-    const baseClass =
-      "button_container__x044H button_medium__r15mw button_capsule__tU-O- button_dark__cw8hT";
-
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = baseClass + " " + BOOKMARK_BTN_CLASS;
+    // 버튼 스타일은 액션바의 기존 버튼 클래스를 그대로 복제(난독화 클래스명 대응)
+    btn.className = cloneSiblingButtonClass(actionWrap) + " " + BOOKMARK_BTN_CLASS;
     btn.style.borderRadius = "17px";
     btn.style.marginRight = "5px";
     btn.innerHTML = `${makeAddBookmarkSVG()} 북마크`;
@@ -347,16 +578,19 @@ async function offAllNotifications() {
       btn.disabled = true;
 
       // 채널 이름/이미지 추출(여러 레이아웃 대비 다중 셀렉터)
+      // 채널명: 페이지 제목(h2/h1) 영역의 텍스트, 없으면 액션바 주변에서 탐색
+      const nameHost =
+        document.querySelector("h2") ||
+        document.querySelector("h1") ||
+        actionWrap.closest("div")?.parentElement;
       const nameEl =
-        document.querySelector(
-          "[class*='channel_profile_name__'] [class*='name_text__']",
-        ) ||
-        document.querySelector(
-          "[class*='channel_header_name__'] [class*='name_text__']",
-        );
+        window.__conchzzkDom.findNameText(nameHost) ||
+        window.__conchzzkDom.findNameText(document);
+      // 썸네일: 채널 ID 링크 내부 또는 페이지 상단의 프로필 이미지
       const imageEl =
-        document.querySelector("[class*='channel_profile_thumbnail__'] img") ||
-        document.querySelector("[class*='channel_header_thumbnail__'] img");
+        document.querySelector(`a[href*="${channelId}"] img`) ||
+        document.querySelector("[class*='_thumbnail_'] img") ||
+        document.querySelector("img");
 
       const channelName = nameEl ? nameEl.textContent.trim() : "";
       const image = imageEl ? imageEl.src : "";
@@ -405,7 +639,7 @@ async function offAllNotifications() {
 
   // ---------- Live page ----------
   function addBookmarkButtonToLivePage() {
-    const wrap = q("[class*='video_information_control__']");
+    const wrap = window.__conchzzkDom.findActionBar();
     if (!wrap || wrap.getAttribute(ATTR_MARK)) return;
     wrap.setAttribute(ATTR_MARK, "1");
 
@@ -418,19 +652,23 @@ async function offAllNotifications() {
     const addBookmarkIcon = makeAddBookmarkSVG();
 
     btn.type = "button";
-    btn.className =
-      "button_container__ppWwB button_secondary__Q03ET button_solid__ZZe8g button_large__oOJou button_font_bold__qEQfU " +
-      BOOKMARK_BTN_CLASS;
+    // 기존 액션바 버튼 스타일 복제(난독화 클래스명 대응)
+    btn.className = cloneSiblingButtonClass(wrap) + " " + BOOKMARK_BTN_CLASS;
     btn.innerHTML = `${addBookmarkIcon} 북마크`;
     btn.style.borderRadius = "17px";
 
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
-      const nameEl = q(
-        "[class*='video_information_name__'] [class*='name_text__']",
-      );
+      // 채널명: 라이브 헤더의 채널명 텍스트
+      const nameLink = document.querySelector(`a[href*="${channelId}"]`);
+      const nameEl =
+        window.__conchzzkDom.findNameText(nameLink?.parentElement) ||
+        window.__conchzzkDom.findNameText(document.querySelector("h2")) ||
+        window.__conchzzkDom.findNameText(document);
       const channelName = nameEl ? nameEl.textContent.trim() : "";
-      const imgEl = q("[class*='video_information_thumbnail__'] img");
+      const imgEl =
+        document.querySelector(`a[href*="${channelId}"] img`) ||
+        document.querySelector("[class*='_thumbnail_'] img");
       const image = imgEl ? imgEl.src : "";
       btn.disabled = true;
 
@@ -477,23 +715,19 @@ async function offAllNotifications() {
   function injectIntoFollowingCard(card) {
     if (!card || card.__bookmarkInjected) return;
 
-    const liveA = q('a[href^="/live/"]', card);
-    const channelA =
-      q("a[class*='channel_item_wrapper__'][href^='/']", card) ||
-      q("a[class*='channel_item_thumbnail__'][href^='/']", card);
-
-    const channelId = liveA
-      ? getChannelIdFromLiveHref(liveA.getAttribute("href"))
-      : channelA
-        ? getChannelIdFromHref(channelA.getAttribute("href"))
-        : null;
+    // 이 카드의 채널 앵커를 직접 찾아 channelId를 확정한다.
+    // 사이드바 등 다른 영역의 링크와 섞이지 않도록, 반드시 card 범위 내에서만 탐색.
+    const channelAnchor = findCardChannelAnchor(card);
+    const channelId = channelAnchor
+      ? channelAnchor.href.startsWith(location.origin + "/live/")
+        ? getChannelIdFromLiveHref(channelAnchor.getAttribute("href"))
+        : getChannelIdFromHref(channelAnchor.getAttribute("href"))
+      : null;
 
     if (!channelId) return;
+    card.__conchzzkChannelId = channelId; // 클릭 시점에 재사용
 
-    const control =
-      q("[class*='channel_item_control__']", card) ||
-      q("[class*='channel_item_follow__']", card)?.parentElement ||
-      card;
+    const control = window.__conchzzkDom.findControlInCard(card);
 
     if (control.querySelector("." + BOOKMARK_BTN_CLASS)) return;
 
@@ -503,21 +737,20 @@ async function offAllNotifications() {
     const addBookmarkIcon = makeAddBookmarkSVG();
 
     btn.type = "button";
-    btn.className =
-      "button_container__x044H button_medium__r15mw button_capsule__tU-O- button_dark__cw8hT " +
-      BOOKMARK_BTN_CLASS;
+    // 카드 내 기존 버튼 스타일 복제(난독화 클래스명 대응)
+    btn.className = cloneSiblingButtonClass(control) + " " + BOOKMARK_BTN_CLASS;
     btn.innerHTML = `${addBookmarkIcon} 북마크`;
     btn.style.marginRight = "6px";
 
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
 
-      const { channelId, isLive } = resolveChannelOnCard(card); // 클릭 시점 재계산
+      // 주입 시점에 확정한 이 카드의 channelId를 사용(다른 채널과 섞이지 않도록).
+      const channelId = card.__conchzzkChannelId;
       if (!channelId) return;
+      const isLive = window.__conchzzkDom.hasLiveBadge(card);
 
-      const nameEl = card.querySelector(
-        "[class*='channel_item_channel__'] [class*='name_text__']",
-      );
+      const nameEl = window.__conchzzkDom.findNameText(card);
       const imageEl = card.querySelector("img");
       const payload = {
         channelId,
@@ -564,18 +797,7 @@ async function offAllNotifications() {
   }
 
   function findFollowingFilter() {
-    const candidates = [
-      "[class*='navigation_component_filter__']",
-      ".navigation_component_filter__xnJPq",
-    ];
-    for (const s of candidates) {
-      const el = document.querySelector(s);
-      if (el) return el;
-    }
-    // fallback: 탭 버튼 중 하나의 부모를 찾아본다
-    const tb = document.querySelector('button[role="tab"]');
-    if (tb) return tb.closest("div") || tb.parentElement;
-    return null;
+    return window.__conchzzkDom.findFollowingFilterBar();
   }
 
   async function addGlobalNotifKillButton() {
@@ -599,8 +821,10 @@ async function offAllNotifications() {
 
     const btn = document.createElement("button");
     btn.type = "button";
+    // 필터 바의 기존 탭 버튼 스타일을 복제(난독화 클래스명 대응)
+    const tabBtn = filter.querySelector('button[role="tab"]');
     btn.className =
-      "chzzk-kill-all-btn button_tab_item__PmbXE button_tab_solid__3yph7 button_tab_small__ym+kK button_tab_bold__edn1k";
+      "chzzk-kill-all-btn" + (tabBtn ? " " + tabBtn.className : "");
     btn.textContent = "모든 알림 끄기";
     Object.assign(btn.style, {
       marginLeft: "5px",
@@ -642,8 +866,9 @@ async function offAllNotifications() {
     }, 100);
 
     // 2) 필터 컨테이너가 아직 없다면, waitForSelectorOnce로 나타나는 즉시 주입
+    //    탭 바는 role="tablist"로 식별(난독화 클래스명 대응)
     waitForSelectorOnce(
-      "[class*='navigation_component_filter__']",
+      '[role="tablist"]',
       (filter) => {
         // 필터를 찾으면 재시도 루프 대신 즉시 주입
         addGlobalNotifKillButton();
@@ -691,15 +916,13 @@ async function offAllNotifications() {
       .querySelectorAll("[data-chzzk-bookmark-injected]")
       .forEach((n) => n.removeAttribute("data-chzzk-bookmark-injected"));
 
-    // 카드에 달아둔 플래그도 초기화
-    document
-      .querySelectorAll('[class*="channel_item_container__"]')
-      .forEach((el) => {
-        try {
-          delete el.__bookmarkInjected;
-          delete el.__bookmarkObserved;
-        } catch {}
-      });
+    // 카드에 달아둔 플래그도 초기화 (구조 기반으로 카드 탐색)
+    window.__conchzzkDom.findFollowingCards().forEach((el) => {
+      try {
+        delete el.__bookmarkInjected;
+        delete el.__bookmarkObserved;
+      } catch {}
+    });
   }
 
   let livePageObserver = null;
@@ -782,9 +1005,34 @@ async function offAllNotifications() {
 
   function observeProfilePage() {
     disconnectObservers();
-    waitForSelectorOnce("[class*='channel_profile_action__']", () => {
-      addBookmarkButtonToChannelProfilePage();
+    // 액션 바(팔로잉/구독 버튼 영역)는 클래스명이 난독화되어 구조 기반으로 탐색.
+    // 나타나는 즉시 1회 주입.
+    waitForConditionOnce(
+      () => window.__conchzzkDom.findActionBar(),
+      () => addBookmarkButtonToChannelProfilePage(),
+    );
+  }
+
+  // 콜백이 truthy 값을 반환할 때까지 DOM 변화를 관찰하다가 1회 실행.
+  function waitForConditionOnce(check, onFound, root = document, timeout = 30000) {
+    const found = check();
+    if (found) {
+      onFound(found);
+      return () => {};
+    }
+    const mo = new MutationObserver((muts, obs) => {
+      const n = check();
+      if (n) {
+        obs.disconnect();
+        onFound(n);
+      }
     });
+    mo.observe(root, { childList: true, subtree: true });
+    const to = setTimeout(() => mo.disconnect(), timeout);
+    return () => {
+      clearTimeout(to);
+      mo.disconnect();
+    };
   }
 
   // ---- Following 페이지: 목록 변화만 관찰 + 가시 카드에만 주입 ----
@@ -808,54 +1056,41 @@ async function offAllNotifications() {
   function observeFollowingPage() {
     disconnectObservers();
     ensureCardIO();
-    // 최초 DOM이 뜨면, 카드들을 관찰만 하고 즉시 주입하지 않음
-    waitForSelectorOnce("ul[class*='component_list__']", (list) => {
-      const scanVisible = () => {
-        const cards = new Set();
-        document
-          .querySelectorAll("li[class*='component_item__']")
-          .forEach((li) => {
-            const card = li.querySelector(
-              "[class*='channel_item_container__']",
-            );
-            if (card && !card.__bookmarkObserved) {
-              card.__bookmarkObserved = true;
-              cardIO.observe(card);
-              try {
-                injectIntoFollowingCard(card);
-              } catch (e) {
-                /* 무시 */
-              }
-              cards.add(card);
+    // 목록(ul[role=list] 또는 첫 카드의 ul 조상)이 뜨면 카드들을 관찰.
+    // 카드는 구조 기반(findFollowingCards)으로 탐색하여 난독화 클래스명에 대응.
+    waitForConditionOnce(
+      () => {
+        const cards = window.__conchzzkDom.findFollowingCards();
+        if (!cards.length) return null;
+        // 카드들의 공통 ul 조상을 관찰 대상으로 사용
+        return cards[0].closest("ul") || cards[0].parentElement;
+      },
+      (list) => {
+        const scanVisible = () => {
+          window.__conchzzkDom.findFollowingCards().forEach((card) => {
+            if (card.__bookmarkObserved) return;
+            card.__bookmarkObserved = true;
+            cardIO.observe(card);
+            try {
+              injectIntoFollowingCard(card); // 즉시 주입 시도
+            } catch (e) {
+              /* 무시 */
             }
           });
-        document
-          .querySelectorAll("[class*='channel_item_container__']")
-          .forEach((el) => {
-            if (!el.__bookmarkObserved) {
-              el.__bookmarkObserved = true;
-              cardIO.observe(el);
-
-              try {
-                injectIntoFollowingCard(el); // 즉시 주입 시도
-              } catch (e) {
-                /* 무시 */
-              }
-            }
+        };
+        scanVisible(); // 초기 1회
+        let ticking = false;
+        followingPageObserver = new MutationObserver(() => {
+          if (ticking) return;
+          ticking = true;
+          requestAnimationFrame(() => {
+            ticking = false;
+            scanVisible();
           });
-      };
-      scanVisible(); // 초기 1회
-      let ticking = false;
-      followingPageObserver = new MutationObserver(() => {
-        if (ticking) return;
-        ticking = true;
-        requestAnimationFrame(() => {
-          ticking = false;
-          scanVisible();
         });
-      });
-      followingPageObserver.observe(list, { childList: true, subtree: true });
-    });
+        followingPageObserver.observe(list, { childList: true, subtree: true });
+      },
+    );
   }
 
   function hookHistory() {
@@ -1006,9 +1241,11 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
   // 3. 팝업 생성을 시도하는 내부 함수 (DOM이 준비될 때까지 재시도)
   (function tryCreatePopup() {
-    const chatContainer = document.querySelector(
-      'aside[class^="live_chatting_container__"]',
-    );
+    const chatContainer =
+      document.querySelector('aside[class^="live_chatting_container__"]') ||
+      document.querySelector("#aside-chatting") ||
+      window.__conchzzkDom.findChatInputArea()?.closest("aside") ||
+      window.__conchzzkDom.findDonationContainer();
     // 채팅창 UI가 아직 없으면 2초 후 재시도
     if (!chatContainer) {
       popupCreateRetryTimer = setTimeout(tryCreatePopup, 2000);
@@ -1274,7 +1511,8 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
 // === LIVE PAGE: 현재 채널 통나무 파워 뱃지 주입 ===
 (() => {
-  const CONTAINER_SEL = "[class*=live_chatting_input_donation__]";
+  // 통나무 파워 뱃지가 붙는 후원 컨테이너. 구조 기반으로 탐색.
+  const findContainer = () => window.__conchzzkDom.findDonationContainer();
   const BADGE_ID = "conchzzk-live-logpower";
   let mo = null;
   let isConChzzkInsertion = false;
@@ -1619,7 +1857,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     watchHourTimerEndsAt = endsAt;
     watchHourRestoreChannelId = channelId;
 
-    const host = document.querySelector(CONTAINER_SEL);
+    const host = findContainer();
     if (host && !displayPaused && showClaimed) {
       const badge = upsertBadge(host);
       const claimedEl = badge.querySelector(".conchzzk-logpower-claimed");
@@ -1723,7 +1961,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
       return;
     }
 
-    const host = document.querySelector(CONTAINER_SEL);
+    const host = findContainer();
     if (!host) return;
 
     const badge = upsertBadge(host);
@@ -1784,7 +2022,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     lastRenderedHref = null;
 
     // 2) 즉시 UI에 새 값을 반영 → 체감상 "바로 반영"
-    const host = document.querySelector(CONTAINER_SEL);
+    const host = findContainer();
     if (host) {
       const badge = upsertBadge(host);
       if (typeof request.newAmount === "number") {
@@ -1894,7 +2132,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
   async function clickPowerButtonIfExists() {
     if (!isLivePage()) return;
 
-    const btn = document.querySelector("[class*=live_chatting_power_button__]");
+    const btn = window.__conchzzkDom.findPowerButton();
     if (!btn || btn.__conchzzkHandled) return;
 
     // 과열 방지(스팸 클릭/요청 방지)
@@ -1940,14 +2178,12 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
     const root =
       document.querySelector("#aside-chatting") ||
-      document.querySelector("[class*=live_chatting_input_area__]") ||
+      window.__conchzzkDom.findChatInputArea() ||
       document.body;
 
     powerMo = new MutationObserver(() => {
       if (document.hidden) return;
-      const btn = document.querySelector(
-        "[class*=live_chatting_power_button__]",
-      );
+      const btn = window.__conchzzkDom.findPowerButton();
       if (btn) clickPowerButtonIfExists();
     });
     powerMo.observe(root, { childList: true, subtree: true });

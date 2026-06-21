@@ -490,7 +490,6 @@ async function offAllNotifications() {
     style.id = "chzzk-bookmark-theme";
     style.textContent = `
     .${BOOKMARK_BTN_CLASS} svg.chzzk-bookmark-icon { transition: filter .2s ease; }
-    .theme_dark .${BOOKMARK_BTN_CLASS} svg.chzzk-bookmark-icon { filter: invert(1); }
   `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -1739,6 +1738,14 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     if (timer) timer.hidden = !visible;
   }
 
+  function setTimerCountdownVisible(badge, visible) {
+    const timer = badge?.querySelector(".conchzzk-logpower-timer");
+    const timeEl = timer?.querySelector(".conchzzk-logpower-time");
+    const iconEl = timer?.querySelector("svg");
+    if (timeEl) timeEl.hidden = !visible;
+    if (iconEl) iconEl.hidden = !visible;
+  }
+
   function setWatchRewardProgressVisible(badge, visible) {
     const progress = badge?.querySelector(".conchzzk-logpower-progress");
     if (progress) progress.hidden = !visible;
@@ -1809,6 +1816,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     setWatchRewardProgressVisible(badge, false);
     const claimedEl = badge?.querySelector(".conchzzk-logpower-claimed");
     if (claimedEl) claimedEl.hidden = true;
+    setTimerCountdownVisible(badge, true);
   }
 
   function resetLogPowerDisplayRestoreState() {
@@ -1843,6 +1851,8 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     const timeEl = badge.querySelector(".conchzzk-logpower-time");
     if (timeEl) timeEl.textContent = formatTimer(remaining);
     setTimerVisible(badge, true);
+    const claimedEl = badge.querySelector(".conchzzk-logpower-claimed");
+    setTimerCountdownVisible(badge, !claimedEl || claimedEl.hidden);
     setWatchRewardProgressVisible(badge, false);
   }
 
@@ -1868,6 +1878,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
         }
         watchHourClaimedLabelTimer = setTimeout(() => {
           claimedEl.hidden = true;
+          renderWatchHourTimer();
           watchHourClaimedLabelTimer = null;
         }, 5000);
       }

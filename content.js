@@ -27,10 +27,38 @@
 window.__conchzzkDom = (() => {
   const textOf = (el) => (el?.textContent || "").trim();
 
+  // 라이브 채팅 페이지는 새 메시지로 초당 수십~수백 번 DOM이 변한다.
+  // body subtree MutationObserver 콜백을 그대로 두면 매 변이마다
+  // 전체 document 스캔(querySelectorAll, cloneNode 등)이 돌아 CPU/메모리가
+  // 폭증하므로, 콜백을 트레일링 디바운스로 합쳐 호출 빈도를 제한한다.
+  const debounce = (fn, wait = 250) => {
+    let timer = null;
+    let scheduled = false;
+    const run = () => {
+      timer = null;
+      scheduled = false;
+      fn();
+    };
+    const debounced = () => {
+      if (scheduled) return; // 이미 예약됨 → 추가 변이는 무시(합치기)
+      scheduled = true;
+      timer = setTimeout(run, wait);
+    };
+    debounced.cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      scheduled = false;
+    };
+    return debounced;
+  };
+
   // 버튼의 "보이는" 텍스트. 접근성 전용 라벨(.blind, .sr-only 등)을 제외해서,
   // <span class="blind">채널명</span>팔로잉 같은 구조에서도 "팔로잉"만 얻는다.
+  // 핫패스에서 호출되므로, 블라인드 라벨이 없으면 cloneNode 없이 바로 반환.
   const visibleTextOf = (el) => {
     if (!el) return "";
+    const blinds = el.querySelectorAll(".blind, .sr-only, [class*='blind']");
+    if (blinds.length === 0) return (el.textContent || "").trim();
     const clone = el.cloneNode(true);
     clone
       .querySelectorAll(".blind, .sr-only, [class*='blind']")
@@ -217,6 +245,7 @@ window.__conchzzkDom = (() => {
 
   return {
     textOf,
+    debounce,
     findChatInputArea,
     findDonationContainer,
     findPowerButton,
@@ -982,12 +1011,15 @@ async function offAllNotifications() {
     // 2. '넓은 화면' 토글 등으로 요소가 DOM에서 제거되었다가
     //    다시 추가되는 상황을 지속적으로 감지하기 위해
     //    영구적인 MutationObserver를 생성
+    // addBookmarkButtonToLivePage는 findActionBar(전체 button 스캔 + cloneNode)를
+    // 호출하므로, 채팅 고빈도 변이마다 실행되지 않도록 디바운스로 합친다.
+    const debouncedInject = window.__conchzzkDom.debounce(
+      () => addBookmarkButtonToLivePage(),
+      400,
+    );
     livePageObserver = new MutationObserver(() => {
-      // DOM에 변경이 생길 때마다 버튼 주입을 "시도"
-      // addBookmarkButtonToLivePage 함수 내부에는
-      // 이미 주입되었는지 확인하는 로직(ATTR_MARK)이 있으므로
-      // 여러 번 호출되어도 안전
-      addBookmarkButtonToLivePage();
+      // DOM 변경 시 버튼 주입 "시도"(ATTR_MARK로 중복 주입 방지되어 안전)
+      debouncedInject();
     });
 
     // 3. body 전체의 변경 사항을 감시
@@ -1113,9 +1145,14 @@ async function offAllNotifications() {
 
   // SPA 네비게이션을 감지하는 더 견고한 옵저버
   function observeNavigation() {
+    // URL 변경 감지는 history 패치 + 4초 인터벌로도 처리되므로,
+    // body subtree 변이마다 실행하지 않고 디바운스로 합쳐도 충분하다.
+    const debouncedCheck = window.__conchzzkDom.debounce(
+      () => triggerIfUrlChanged(),
+      300,
+    );
     const observer = new MutationObserver(() => {
-      // DOM이 변경될 때마다 URL이 바뀌었는지 확인
-      triggerIfUrlChanged();
+      debouncedCheck();
     });
 
     // body 전체의 자식 노드 변경(페이지 전환)을 감지
@@ -1667,10 +1704,19 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
   function upsertBadge(parentEl) {
     let badge = document.getElementById(BADGE_ID);
-    const needsInsert =
-      !badge ||
-      !badge.isConnected ||
-      parentEl.lastElementChild?.id !== BADGE_ID;
+
+    // 이미 존재하는 배지는 "재생성"하지 않고 위치만 보정한다.
+    // (재생성하면 거대한 SVG innerHTML 파싱이 반복되어 DOM/메모리가 누적됨)
+    if (badge && badge.isConnected) {
+      if (parentEl.lastElementChild?.id !== BADGE_ID) {
+        isConChzzkInsertion = true;
+        parentEl.appendChild(badge); // 이동(중복 생성 없음)
+        queueMicrotask(() => (isConChzzkInsertion = false));
+      }
+      return badge;
+    }
+
+    const needsInsert = !badge || !badge.isConnected;
 
     if (needsInsert) {
       isConChzzkInsertion = true;
@@ -1975,6 +2021,15 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     const host = findContainer();
     if (!host) return;
 
+    // 입력 영역이 교체되었으면(넓은화면 토글 등) 좁은 옵저버를 새 영역에 재부착.
+    const currentArea = window.__conchzzkDom.findChatInputArea();
+    if (
+      currentArea &&
+      (currentArea !== observedInputArea || !observedInputArea?.isConnected)
+    ) {
+      attachObserverTo(currentArea);
+    }
+
     const badge = upsertBadge(host);
     const amt = await fetchChannelLogPower();
 
@@ -1988,17 +2043,79 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     applyTooltip();
   }
 
-  function ensureObserver() {
-    if (mo) return;
-    if (displayPaused) return;
+  // render()는 전체 구조 스캔 + 비동기 작업을 포함하므로 디바운스로 호출 빈도 제한.
+  const debouncedRender = window.__conchzzkDom.debounce(() => render(), 400);
 
+  // 좁은 옵저버가 감시 중인 입력 영역(도구 줄 포함). 이 영역이 DOM에서
+  // 교체되면 옵저버를 재부착해야 하므로 추적해 둔다.
+  let observedInputArea = null;
+  // 입력 영역이 아직 없을 때만 잠깐 사용하는 폴링 타이머.
+  let inputAreaWaitTimer = null;
+
+  // 채팅 메시지 컨테이너 전체가 아니라, 통나무 파워 배지/타이머를 주입하는
+  // 입력 영역(도구 줄 _tools 포함)만 좁게 감시한다. 채팅 메시지 변이는
+  // 이 영역 밖이라 콜백을 깨우지 않아 CPU/메모리 부담이 크게 줄어든다.
+  function attachObserverTo(area) {
+    if (mo) {
+      mo.disconnect();
+      mo = null;
+    }
+    observedInputArea = area;
     mo = new MutationObserver((mutations) => {
       if (isConChzzkInsertion) return;
       if (mutations.length && mutations.every(isBadgeMutation)) return;
-      // 렌더 함수 내에서 URL 체크를 하므로, 여기서는 렌더만 호출
-      render();
+      // 입력 영역 내부 변경(후원 버튼 재배치 등)을 합쳐서 렌더 호출
+      debouncedRender();
     });
-    mo.observe(document.body, { childList: true, subtree: true });
+    mo.observe(area, { childList: true, subtree: true });
+  }
+
+  // 좁은 옵저버와 대기 폴링을 모두 정리.
+  function stopObserver() {
+    if (mo) {
+      mo.disconnect();
+      mo = null;
+    }
+    observedInputArea = null;
+    if (inputAreaWaitTimer) {
+      clearInterval(inputAreaWaitTimer);
+      inputAreaWaitTimer = null;
+    }
+  }
+
+  function ensureObserver() {
+    if (displayPaused) return;
+    // 이미 살아있는 입력 영역을 감시 중이면 그대로 둔다.
+    if (mo && observedInputArea && observedInputArea.isConnected) return;
+
+    const area = window.__conchzzkDom.findChatInputArea();
+    if (area) {
+      if (inputAreaWaitTimer) {
+        clearInterval(inputAreaWaitTimer);
+        inputAreaWaitTimer = null;
+      }
+      attachObserverTo(area);
+      return;
+    }
+
+    // 입력 영역이 아직 없으면(페이지 진입 직후 등) 나타날 때까지 짧게 폴링.
+    // body 전체를 subtree로 감시하지 않으므로 채팅 변이의 영향을 받지 않는다.
+    if (!inputAreaWaitTimer) {
+      inputAreaWaitTimer = setInterval(() => {
+        if (displayPaused || !/\/live\/[a-f0-9]{32}/i.test(location.href)) {
+          clearInterval(inputAreaWaitTimer);
+          inputAreaWaitTimer = null;
+          return;
+        }
+        const a = window.__conchzzkDom.findChatInputArea();
+        if (a) {
+          clearInterval(inputAreaWaitTimer);
+          inputAreaWaitTimer = null;
+          attachObserverTo(a);
+          render();
+        }
+      }, 1000);
+    }
   }
 
   // URL 변경을 감지하고 뱃지를 다시 렌더링하는 함수
@@ -2007,6 +2124,10 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     if (/\/live\/[a-f0-9]{32}/i.test(location.href)) {
       ensureObserver();
       render();
+    } else {
+      // 라이브를 벗어나면 좁은 옵저버/폴링을 정리하고 배지 제거.
+      stopObserver();
+      removeBadge();
     }
   }
 
@@ -2059,10 +2180,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     displayPaused = !!changes[DISP_KEY].newValue;
 
     if (displayPaused) {
-      if (mo) {
-        mo.disconnect();
-        mo = null;
-      }
+      stopObserver();
       removeBadge();
     } else {
       resetLogPowerDisplayRestoreState();
@@ -2076,10 +2194,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     chrome.storage.local.get({ [DISP_KEY]: false }, (data) => {
       displayPaused = !!data[DISP_KEY];
       if (displayPaused) {
-        if (mo) {
-          mo.disconnect();
-          mo = null;
-        }
+        stopObserver();
         removeBadge();
       } else {
         ensureObserver();
@@ -2178,25 +2293,47 @@ function showLogPowerBalancesPopup(limit = Infinity) {
 
   let powerMo = null;
   let powerPollInterval = null;
+  let observedPowerArea = null;
 
   function startPowerObserver() {
+    if (document.hidden) return;
+
+    // 5초 폴링은 옵저버 부착 여부와 무관하게 백업으로 항상 유지한다.
+    // 또한 입력 영역이 아직 없으면 폴링 시점에 옵저버 부착을 재시도한다.
+    if (!powerPollInterval) {
+      powerPollInterval = setInterval(() => {
+        clickPowerButtonIfExists();
+        if (document.hidden) return;
+        // 입력 영역이 교체되어 죽은 노드를 감시 중이면 옵저버를 재부착.
+        if (powerMo && observedPowerArea && !observedPowerArea.isConnected) {
+          powerMo.disconnect();
+          powerMo = null;
+          observedPowerArea = null;
+        }
+        if (!powerMo) attachPowerObserver();
+      }, 5000);
+    }
+
+    attachPowerObserver();
+  }
+
+  // 채팅 메시지 컨테이너 전체(#aside-chatting)가 아니라, 보상 팝업이 뜨는
+  // 입력 영역(도구 줄 포함)만 좁게 감시한다. 메시지 변이는 콜백을 깨우지 않는다.
+  function attachPowerObserver() {
     if (powerMo || document.hidden) return;
+    const root = window.__conchzzkDom.findChatInputArea();
+    if (!root) return; // 입력 영역이 생기면 폴링 콜백이 다시 시도한다.
 
-    // 1. 기존 인터벌이 있다면 정리
-    if (powerPollInterval) clearInterval(powerPollInterval);
-    // 2. 5초마다 clickPowerButtonIfExists 함수를 강제로 호출
-    powerPollInterval = setInterval(clickPowerButtonIfExists, 5000);
-
-    const root =
-      document.querySelector("#aside-chatting") ||
-      window.__conchzzkDom.findChatInputArea() ||
-      document.body;
-
-    powerMo = new MutationObserver(() => {
+    const debouncedCheck = window.__conchzzkDom.debounce(() => {
       if (document.hidden) return;
       const btn = window.__conchzzkDom.findPowerButton();
       if (btn) clickPowerButtonIfExists();
+    }, 500);
+    powerMo = new MutationObserver(() => {
+      if (document.hidden) return;
+      debouncedCheck();
     });
+    observedPowerArea = root;
     powerMo.observe(root, { childList: true, subtree: true });
   }
   function stopPowerObserver() {
@@ -2211,6 +2348,7 @@ function showLogPowerBalancesPopup(limit = Infinity) {
       powerMo.disconnect();
       powerMo = null;
     }
+    observedPowerArea = null;
   }
 
   document.addEventListener("visibilitychange", () => {

@@ -7281,7 +7281,51 @@ function createPredictionEndObject(channel, predictionDetails) {
 }
 
 // --- 알림 클릭을 처리하는 재사용 가능한 함수 ---
-async function handleNotificationClick(notificationId) {
+// notificationId 패턴에서 목표 URL을 복원(리스트에 없을 때의 최후 폴백).
+// id 형식은 알림 생성부(`live-{channelId}-...`, `video-{videoNo}` 등)와 일치.
+function reconstructUrlFromNotificationId(notificationId) {
+  const id = String(notificationId || "");
+  const HEX32 = "[a-f0-9]{32}";
+  let m;
+
+  // 라이브/카테고리/제목/후원/파티/통나무 등 채널 라이브 페이지로 이동하는 유형
+  if (
+    (m = id.match(
+      new RegExp(
+        `^(?:live|live-off|live-adult|live-watch-party|live-drops|party|party-left|party-end|donation-start|donation-end|prediction-start|prediction-end|category-live-title|live-title|category)-(${HEX32})`,
+      ),
+    ))
+  ) {
+    return `${CHZZK_URL}/live/${m[1]}`;
+  }
+  // 게시글/라운지가 아닌 구독권 선물(채널 홈)
+  if (
+    (m = id.match(new RegExp(`^subscription-gift-expiring-(${HEX32})`)))
+  ) {
+    return `${CHZZK_URL}/${m[1]}`;
+  }
+  // 커뮤니티 게시글
+  if ((m = id.match(new RegExp(`^post-(${HEX32})-(.+)$`)))) {
+    return `${CHZZK_URL}/${m[1]}/community/detail/${m[2]}`;
+  }
+  // 동영상
+  if ((m = id.match(/^video-(\d+)$/))) {
+    return `${CHZZK_URL}/video/${m[1]}`;
+  }
+  return "";
+}
+
+async function handleNotificationClick(
+  notificationId,
+  { fallbackUrl = "", keepActive = false } = {},
+) {
+  // checkFollowedChannels가 실행 중이면, 그 함수가 시작 시점의 history 스냅샷을
+  // 마지막에 통째로 다시 쓰면서 여기서 만든 read:true를 덮어쓸 수 있다.
+  // 락이 풀린 뒤 최신 history를 읽어 수정해야 읽음 상태가 보존된다.
+  while (isChecking) {
+    await sleep(250);
+  }
+
   const data = await chrome.storage.local.get("notificationHistory");
   const history = data.notificationHistory || [];
 
@@ -7339,8 +7383,20 @@ async function handleNotificationClick(notificationId) {
     await updateUnreadCountBadge(); // 배지 숫자 즉시 업데이트
   }
 
+  // 리스트에서 알림을 찾지 못한 경우(트림/동기화 누락 등)에도
+  // 클릭한 쪽에서 전달한 url로 페이지를 열어 "클릭해도 안 열리는" 문제를 방지.
+  if (!targetUrl && fallbackUrl) {
+    targetUrl = fallbackUrl;
+  }
+
+  // OS 알림 버블 클릭 등 url을 못 받은 경우, notificationId 패턴에서 URL 복원.
+  if (!targetUrl) {
+    targetUrl = reconstructUrlFromNotificationId(notificationId);
+  }
+
   if (targetUrl) {
-    chrome.tabs.create({ url: targetUrl });
+    // keepActive=true면 새 탭을 백그라운드로 열어 팝업(또는 현재 탭) 유지.
+    chrome.tabs.create({ url: targetUrl, active: !keepActive });
   }
 }
 
@@ -7472,6 +7528,33 @@ async function deleteAllFiltered(filter, limit) {
  * 특정 ID의 알림을 삭제하고 dismissed 목록에 추가하는 함수
  * @param {string} notificationId - 삭제할 알림의 ID
  */
+// 단일 알림을 '읽음'으로 표시(브라우저 네이티브 새 탭 열기 등으로
+// handleNotificationClick이 호출되지 않는 경우에 사용).
+async function markOneRead(notificationId) {
+  // checkFollowedChannels의 스냅샷 덮어쓰기로 읽음이 되돌아가지 않도록 락 대기.
+  while (isChecking) {
+    await sleep(250);
+  }
+
+  const { notificationHistory = [] } = await chrome.storage.local.get(
+    "notificationHistory",
+  );
+
+  let changed = false;
+  const updated = notificationHistory.map((item) => {
+    if (item.id === notificationId && !item.read) {
+      changed = true;
+      return { ...item, read: true };
+    }
+    return item;
+  });
+
+  if (changed) {
+    await chrome.storage.local.set({ notificationHistory: updated });
+    await updateUnreadCountBadge();
+  }
+}
+
 async function deleteNotification(notificationId) {
   // isChecking 플래그를 확인하여 checkFollowedChannels가 실행 중일 때는 대기
   while (isChecking) {
@@ -7793,9 +7876,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // async 응답
   }
 
+  if (request.type === "MARK_ONE_READ") {
+    (async () => {
+      await markOneRead(request.notificationId);
+      sendResponse({ ok: true });
+    })();
+    return true; // async 응답
+  }
+
   // *** 팝업의 알림 클릭 요청 처리 ***
   if (request.type === "NOTIFICATION_CLICKED") {
-    handleNotificationClick(request.notificationId);
+    handleNotificationClick(request.notificationId, {
+      fallbackUrl: request.url || "",
+      keepActive: !!request.keepActive,
+    });
     // 응답이 필요 없는 단방향 메시지
   }
 

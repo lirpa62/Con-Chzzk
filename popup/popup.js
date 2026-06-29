@@ -18,6 +18,65 @@ function normalizeChannelImageUrl(url) {
   return url;
 }
 
+const CHZZK_BASE_URL = "https://chzzk.naver.com";
+
+// 알림을 "읽음"으로 낙관적 표시(UI 즉시) + 배경에 영속화 요청.
+// 우클릭/휠/Ctrl·Cmd 클릭으로 브라우저가 네이티브로 새 탭을 여는 경우,
+// background의 클릭 핸들러가 동작하지 않으므로 읽음 처리를 별도로 보장한다.
+function markNotificationReadOptimistic(itemId, itemElement, _url) {
+  if (itemElement) itemElement.classList.add("read");
+  // 가상 리스트 메모리 상태도 반영(재렌더 시 유지)
+  try {
+    const it = virtualState.items.find((x) => x && x.id === itemId);
+    if (it) it.read = true;
+  } catch {}
+  chrome.runtime.sendMessage({ type: "MARK_ONE_READ", notificationId: itemId });
+}
+
+// 알림 아이템이 가리키는 목표 URL을 계산한다.
+// background.js의 handleNotificationClick과 동일한 매핑을 유지한다.
+// (알림이 리스트에서 사라졌거나 클릭 처리가 누락되는 경우의 폴백/새 탭 열기에 사용)
+function getNotificationUrl(item) {
+  if (!item) return "";
+  switch (item.type) {
+    case "CATEGORY":
+    case "LIVETITLE":
+    case "CATEGORY/LIVETITLE":
+    case "WATCHPARTY":
+    case "DROPS":
+    case "ADULT":
+    case "LIVE":
+    case "LIVE_OFF":
+    case "DONATION_START":
+    case "DONATION_END":
+    case "PARTY_LEFT":
+    case "PARTY_END":
+    case "LOGPOWER":
+    case "PREDICTION_START":
+    case "PREDICTION_END":
+      return item.channelId ? `${CHZZK_BASE_URL}/live/${item.channelId}` : "";
+    case "SUBSCRIPTION_GIFT_RECEIVED":
+    case "SUBSCRIPTION_GIFT_EXPIRING":
+      return item.channelId ? `${CHZZK_BASE_URL}/${item.channelId}` : "";
+    case "PARTY_START":
+      return item.partyNo
+        ? `${CHZZK_BASE_URL}/party-lives/${item.partyNo}`
+        : "";
+    case "POST":
+      return item.channelId && item.commentId
+        ? `${CHZZK_BASE_URL}/${item.channelId}/community/detail/${item.commentId}`
+        : "";
+    case "VIDEO":
+      return item.videoNo ? `${CHZZK_BASE_URL}/video/${item.videoNo}` : "";
+    case "LOUNGE":
+      return item.feedLink || "";
+    case "BANNER":
+      return item.landingUrl || "";
+    default:
+      return "";
+  }
+}
+
 const allSVG = `<svg width="15" height="15" viewBox="0 0 355 218" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
               <rect width="355" height="218" fill="url(#pattern0_13_54)"></rect>
               <defs>
@@ -530,6 +589,10 @@ let timeUpdaterInterval = null; // 인터벌 ID를 저장할 변수
 let predictionUpdaterInterval = null;
 
 let suppressNextStorageRerender = false;
+// 개별 삭제를 낙관적으로 처리할 때, 배경의 실제 삭제가 완료(스토리지 반영)될
+// 때까지 해당 id를 모아둔다. 그 사이에 다른 스토리지 변경으로 재렌더가 일어나도
+// 이 id들은 목록에서 제외하여 "삭제가 원상복구되는" 깜빡임을 막는다.
+const pendingDeleteIds = new Set();
 // === Virtual list config ===
 const VIRTUAL_CHUNK = 100; // 한번에 추가로 그릴 개수 (100~200 권장)
 const VIRTUAL_OVERSCAN = 0; // (옵션) 여유분, 지금은 0
@@ -2701,14 +2764,26 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
 
   const displayLimit = typeof _displayLimit === "number" ? _displayLimit : 300;
 
+  // 낙관적 삭제 중인 항목은 스토리지에 아직 남아 있어도 화면에서 제외.
+  // 스토리지에서 이미 사라진 id는 pending 집합에서 정리(삭제 완료).
+  if (pendingDeleteIds.size) {
+    const stillPresent = new Set(notificationHistory.map((it) => it.id));
+    for (const id of [...pendingDeleteIds]) {
+      if (!stillPresent.has(id)) pendingDeleteIds.delete(id);
+    }
+  }
+
   const toggleBtn = document.getElementById("video-thumbnail-toggle-btn");
   if (toggleBtn) {
     toggleBtn.classList.toggle("active", Boolean(_isVideoThumbnailHidden));
     virtualState.isVideoThumbnailHidden = Boolean(_isVideoThumbnailHidden);
   }
 
-  // 1) 필터링/표시 상한 계산
-  const displayHistory = notificationHistory.slice(0, displayLimit);
+  // 1) 필터링/표시 상한 계산 (낙관적 삭제 중인 항목 제외)
+  const visibleHistory = pendingDeleteIds.size
+    ? notificationHistory.filter((it) => !pendingDeleteIds.has(it.id))
+    : notificationHistory;
+  const displayHistory = visibleHistory.slice(0, displayLimit);
   let filteredHistory = displayHistory;
   if (currentFilter !== "ALL") {
     if (currentFilter === "CATEGORY/LIVETITLE") {
@@ -3306,7 +3381,10 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
       // 5. 헤더 카운트 즉시 반영
       updateCenterHeader();
 
-      // 6. 이미 UI에 반영했으므로 다음 onChanged 1회는 무시
+      // 6. 배경의 실제 삭제가 스토리지에 반영될 때까지 이 id를 제외 목록에 등록.
+      //    (isChecking 대기 등으로 삭제가 지연돼도 재렌더 시 되살아나지 않음)
+      pendingDeleteIds.add(itemId);
+      // 바로 뒤따르는 1회 onChanged는 이미 UI에 반영했으므로 스킵(깜빡임 최소화)
       suppressNextStorageRerender = true;
 
       chrome.runtime.sendMessage({
@@ -3316,14 +3394,63 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
       return;
     }
 
-    // 위 두 조건에 모두 해당하지 않으면 일반 클릭으로 처리
+    const itemUrl = itemElement.dataset.url || "";
+    const hasOverlay = itemElement.classList.contains("has-link-overlay");
+
+    // Ctrl/Cmd+클릭(또는 가운데 버튼): 새 탭에서 열기.
+    // 오버레이 링크가 있으면 브라우저가 네이티브로 새 탭을 열므로 기본 동작을
+    // 막지 않고, 읽음 처리만 한다(중복 열림 방지). 오버레이가 없으면 직접 연다.
+    const wantsNewTab =
+      event.button === 1 || event.ctrlKey || event.metaKey;
+    if (wantsNewTab) {
+      markNotificationReadOptimistic(itemId, itemElement, itemUrl);
+      if (!hasOverlay && itemUrl) {
+        // 링크가 없던 항목: background가 백그라운드 새 탭으로 열어줌
+        chrome.runtime.sendMessage({
+          type: "NOTIFICATION_CLICKED",
+          notificationId: itemId,
+          url: itemUrl,
+          keepActive: true,
+        });
+      }
+      return; // 팝업은 유지
+    }
+
+    // 일반 좌클릭: 읽음 처리 + 페이지 열기 후 팝업 닫기.
+    // 리스트에서 해당 알림을 못 찾는 경우를 대비해 url을 함께 전달(폴백).
     chrome.runtime.sendMessage({
       type: "NOTIFICATION_CLICKED",
       notificationId: itemId,
+      url: itemUrl,
     });
 
     // 사용자 경험을 위해 팝업을 즉시 닫음
     window.close();
+  };
+
+  // 가운데(휠) 클릭은 click이 아니라 auxclick으로 들어온다.
+  // 오버레이 링크가 있으면 브라우저 네이티브로 새 탭이 열리므로 읽음 처리만 하고,
+  // 링크가 없는 항목만 직접 새 탭으로 연다.
+  listElement.onauxclick = (event) => {
+    if (event.button !== 1) return; // 가운데 버튼만
+    const target = event.target;
+    if (target.closest(".mark-one-delete-btn")) return;
+    const itemElement = target.closest(".notification-item");
+    if (!itemElement) return;
+
+    const itemId = itemElement.dataset.id;
+    const itemUrl = itemElement.dataset.url || "";
+    const hasOverlay = itemElement.classList.contains("has-link-overlay");
+
+    markNotificationReadOptimistic(itemId, itemElement, itemUrl);
+    if (!hasOverlay && itemUrl) {
+      chrome.runtime.sendMessage({
+        type: "NOTIFICATION_CLICKED",
+        notificationId: itemId,
+        url: itemUrl,
+        keepActive: true,
+      });
+    }
   };
 
   updateCenterHeader();
@@ -4018,6 +4145,28 @@ function createNotificationNode(
   div.dataset.type = item.type;
   div.dataset.channelId =
     item.type === "BANNER" ? "chzzk-banner" : item.channelId;
+  // 휠/우클릭 새 탭 열기 및 클릭 폴백을 위해 목표 URL을 보관
+  const notifUrl = getNotificationUrl(item);
+  if (notifUrl) {
+    div.dataset.url = notifUrl;
+    // 우클릭 "새 탭에서 열기"(브라우저 기본 메뉴)가 동작하려면 실제 <a href>가
+    // 필요하다. 콘텐츠 뒤에 깔리는 투명 오버레이 링크를 둔다.
+    // - 우클릭: 브라우저 기본 컨텍스트 메뉴(새 탭/창에서 열기) 사용
+    // - 좌클릭: 기존 위임 핸들러(listElement.onclick)가 처리하므로 기본 이동은 막음
+    // - 가운데(휠) 클릭: auxclick 위임 핸들러가 처리
+    div.classList.add("has-link-overlay");
+    const overlay = document.createElement("a");
+    overlay.className = "notification-link-overlay";
+    overlay.href = notifUrl;
+    overlay.tabIndex = -1;
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.addEventListener("click", (e) => {
+      // 좌클릭(수식키 없음)의 기본 페이지 이동만 막고, 위임 핸들러가 처리하도록 둔다.
+      // 우클릭(기본 메뉴), Ctrl/Cmd+클릭(새 탭)은 브라우저 네이티브 동작을 유지.
+      if (e.button === 0 && !e.ctrlKey && !e.metaKey) e.preventDefault();
+    });
+    div.appendChild(overlay);
+  }
 
   if (item.commentId) {
     div.dataset.commentId = item.commentId;

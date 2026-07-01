@@ -627,7 +627,8 @@ input:checked + .slider:before {
    클릭 가능하게 유지한다. 일반 래퍼는 건드리지 않아 내부 절대배치 요소의
    기준이 바뀌지 않도록 한다. (오버레이는 z-index:0, 이들은 z-index:1) */
 .notification-item.has-link-overlay a:not(.notification-link-overlay),
-.notification-item.has-link-overlay button {
+.notification-item.has-link-overlay button,
+.notification-item.has-link-overlay .notification-attach-wrapper {
   position: relative;
   z-index: 1;
 }

@@ -7319,84 +7319,68 @@ async function handleNotificationClick(
   notificationId,
   { fallbackUrl = "", keepActive = false } = {},
 ) {
-  // checkFollowedChannels가 실행 중이면, 그 함수가 시작 시점의 history 스냅샷을
-  // 마지막에 통째로 다시 쓰면서 여기서 만든 read:true를 덮어쓸 수 있다.
-  // 락이 풀린 뒤 최신 history를 읽어 수정해야 읽음 상태가 보존된다.
-  while (isChecking) {
-    await sleep(250);
-  }
-
-  const data = await chrome.storage.local.get("notificationHistory");
-  const history = data.notificationHistory || [];
-
-  let targetUrl = "";
-  let clickedItemFound = false;
-
-  const updatedHistory = history.map((item) => {
-    if (item.id === notificationId) {
-      clickedItemFound = true;
-      switch (item.type) {
-        case "CATEGORY":
-        case "LIVETITLE":
-        case "CATEGORY/LIVETITLE":
-        case "WATCHPARTY":
-        case "DROPS":
-        case "ADULT":
-        case "LIVE":
-        case "LIVE_OFF":
-        case "DONATION_START":
-        case "DONATION_END":
-        case "PARTY_LEFT":
-        case "PARTY_END":
-        case "LOGPOWER":
-        case "PREDICTION_START":
-        case "PREDICTION_END":
-          targetUrl = `${CHZZK_URL}/live/${item.channelId}`;
-          break;
-        case "SUBSCRIPTION_GIFT_RECEIVED":
-        case "SUBSCRIPTION_GIFT_EXPIRING":
-          targetUrl = `${CHZZK_URL}/${item.channelId}`;
-          break;
-        case "PARTY_START":
-          targetUrl = `${CHZZK_URL}/party-lives/${item.partyNo}`;
-          break;
-        case "POST":
-          targetUrl = `${CHZZK_URL}/${item.channelId}/community/detail/${item.commentId}`;
-          break;
-        case "VIDEO":
-          targetUrl = `${CHZZK_URL}/video/${item.videoNo}`;
-          break;
-        case "LOUNGE":
-          targetUrl = `${item.feedLink}`;
-          break;
-        case "BANNER":
-          targetUrl = `${item.landingUrl}`;
-          break;
-      }
-      return { ...item, read: true };
-    }
-    return item;
-  });
-
-  if (clickedItemFound) {
-    await chrome.storage.local.set({ notificationHistory: updatedHistory });
-    await updateUnreadCountBadge(); // 배지 숫자 즉시 업데이트
-  }
-
-  // 리스트에서 알림을 찾지 못한 경우(트림/동기화 누락 등)에도
-  // 클릭한 쪽에서 전달한 url로 페이지를 열어 "클릭해도 안 열리는" 문제를 방지.
-  if (!targetUrl && fallbackUrl) {
-    targetUrl = fallbackUrl;
-  }
-
-  // OS 알림 버블 클릭 등 url을 못 받은 경우, notificationId 패턴에서 URL 복원.
-  if (!targetUrl) {
-    targetUrl = reconstructUrlFromNotificationId(notificationId);
-  }
-
+  // 1) 탭 열기: isChecking 락과 무관하게 "즉시" 처리한다.
+  //    (락을 기다리면 주기 점검 중 클릭 시 새 창 열림이 지연되는 문제 발생)
+  //    URL은 팝업이 넘겨준 fallbackUrl → id 패턴 복원 순으로 락 없이 결정.
+  let targetUrl = fallbackUrl || reconstructUrlFromNotificationId(notificationId);
   if (targetUrl) {
-    // keepActive=true면 새 탭을 백그라운드로 열어 팝업(또는 현재 탭) 유지.
     chrome.tabs.create({ url: targetUrl, active: !keepActive });
+  }
+
+  // 2) 읽음 표시: 스냅샷 덮어쓰기 경쟁을 피하기 위해 락이 풀린 뒤 최신 history를
+  //    읽어 수정한다. 탭 열기와 분리되어 있어 UX 지연이 없다.
+  await markOneRead(notificationId);
+
+  // 3) 폴백 URL이 없었던 경우(예: 팝업이 url을 못 넘긴 구버전 등)에 한해,
+  //    락 이후 확보된 history에서 URL을 다시 시도해 연다.
+  if (!targetUrl) {
+    const { notificationHistory: history = [] } =
+      await chrome.storage.local.get("notificationHistory");
+    const item = history.find((it) => it.id === notificationId);
+    if (item) {
+      targetUrl = notificationItemToUrl(item);
+      if (targetUrl) {
+        chrome.tabs.create({ url: targetUrl, active: !keepActive });
+      }
+    }
+  }
+}
+
+// 알림 아이템 객체 → 목표 URL (handleNotificationClick과 매핑 일치).
+function notificationItemToUrl(item) {
+  if (!item) return "";
+  switch (item.type) {
+    case "CATEGORY":
+    case "LIVETITLE":
+    case "CATEGORY/LIVETITLE":
+    case "WATCHPARTY":
+    case "DROPS":
+    case "ADULT":
+    case "LIVE":
+    case "LIVE_OFF":
+    case "DONATION_START":
+    case "DONATION_END":
+    case "PARTY_LEFT":
+    case "PARTY_END":
+    case "LOGPOWER":
+    case "PREDICTION_START":
+    case "PREDICTION_END":
+      return `${CHZZK_URL}/live/${item.channelId}`;
+    case "SUBSCRIPTION_GIFT_RECEIVED":
+    case "SUBSCRIPTION_GIFT_EXPIRING":
+      return `${CHZZK_URL}/${item.channelId}`;
+    case "PARTY_START":
+      return `${CHZZK_URL}/party-lives/${item.partyNo}`;
+    case "POST":
+      return `${CHZZK_URL}/${item.channelId}/community/detail/${item.commentId}`;
+    case "VIDEO":
+      return `${CHZZK_URL}/video/${item.videoNo}`;
+    case "LOUNGE":
+      return `${item.feedLink}`;
+    case "BANNER":
+      return `${item.landingUrl}`;
+    default:
+      return "";
   }
 }
 

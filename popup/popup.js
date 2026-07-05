@@ -3395,24 +3395,19 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
     }
 
     const itemUrl = itemElement.dataset.url || "";
-    const hasOverlay = itemElement.classList.contains("has-link-overlay");
 
-    // Ctrl/Cmd+클릭(또는 가운데 버튼): 새 탭에서 열기.
-    // 오버레이 링크가 있으면 브라우저가 네이티브로 새 탭을 열므로 기본 동작을
-    // 막지 않고, 읽음 처리만 한다(중복 열림 방지). 오버레이가 없으면 직접 연다.
+    // Ctrl/Cmd+클릭: 새 탭(백그라운드)에서 열고 팝업은 유지.
     const wantsNewTab =
       event.button === 1 || event.ctrlKey || event.metaKey;
     if (wantsNewTab) {
+      event.preventDefault();
       markNotificationReadOptimistic(itemId, itemElement, itemUrl);
-      if (!hasOverlay && itemUrl) {
-        // 링크가 없던 항목: background가 백그라운드 새 탭으로 열어줌
-        chrome.runtime.sendMessage({
-          type: "NOTIFICATION_CLICKED",
-          notificationId: itemId,
-          url: itemUrl,
-          keepActive: true,
-        });
-      }
+      chrome.runtime.sendMessage({
+        type: "NOTIFICATION_CLICKED",
+        notificationId: itemId,
+        url: itemUrl,
+        keepActive: true,
+      });
       return; // 팝업은 유지
     }
 
@@ -3428,9 +3423,7 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
     window.close();
   };
 
-  // 가운데(휠) 클릭은 click이 아니라 auxclick으로 들어온다.
-  // 오버레이 링크가 있으면 브라우저 네이티브로 새 탭이 열리므로 읽음 처리만 하고,
-  // 링크가 없는 항목만 직접 새 탭으로 연다.
+  // 가운데(휠) 클릭은 click이 아니라 auxclick으로 들어온다. 새 탭(백그라운드) 열기.
   listElement.onauxclick = (event) => {
     if (event.button !== 1) return; // 가운데 버튼만
     const target = event.target;
@@ -3438,19 +3431,38 @@ async function renderNotificationCenter(options = { resetScroll: false }) {
     const itemElement = target.closest(".notification-item");
     if (!itemElement) return;
 
+    event.preventDefault();
     const itemId = itemElement.dataset.id;
     const itemUrl = itemElement.dataset.url || "";
-    const hasOverlay = itemElement.classList.contains("has-link-overlay");
 
     markNotificationReadOptimistic(itemId, itemElement, itemUrl);
-    if (!hasOverlay && itemUrl) {
-      chrome.runtime.sendMessage({
-        type: "NOTIFICATION_CLICKED",
-        notificationId: itemId,
-        url: itemUrl,
-        keepActive: true,
-      });
-    }
+    chrome.runtime.sendMessage({
+      type: "NOTIFICATION_CLICKED",
+      notificationId: itemId,
+      url: itemUrl,
+      keepActive: true,
+    });
+  };
+
+  // 우클릭: 브라우저 기본 메뉴 대신 새 탭(백그라운드)에서 열기.
+  // (팝업에서는 기본 컨텍스트 메뉴의 "새 탭에서 열기"가 신뢰성이 낮아 직접 처리)
+  listElement.oncontextmenu = (event) => {
+    const target = event.target;
+    if (target.closest(".mark-one-delete-btn")) return;
+    const itemElement = target.closest(".notification-item");
+    if (!itemElement) return;
+    const itemUrl = itemElement.dataset.url || "";
+    if (!itemUrl) return; // URL이 없으면 기본 메뉴 유지
+
+    event.preventDefault();
+    const itemId = itemElement.dataset.id;
+    markNotificationReadOptimistic(itemId, itemElement, itemUrl);
+    chrome.runtime.sendMessage({
+      type: "NOTIFICATION_CLICKED",
+      notificationId: itemId,
+      url: itemUrl,
+      keepActive: true,
+    });
   };
 
   updateCenterHeader();
@@ -4145,28 +4157,9 @@ function createNotificationNode(
   div.dataset.type = item.type;
   div.dataset.channelId =
     item.type === "BANNER" ? "chzzk-banner" : item.channelId;
-  // 휠/우클릭 새 탭 열기 및 클릭 폴백을 위해 목표 URL을 보관
+  // 목표 URL을 보관. 좌/휠/Ctrl·Cmd 클릭 및 우클릭 새 탭 열기에 사용.
   const notifUrl = getNotificationUrl(item);
-  if (notifUrl) {
-    div.dataset.url = notifUrl;
-    // 우클릭 "새 탭에서 열기"(브라우저 기본 메뉴)가 동작하려면 실제 <a href>가
-    // 필요하다. 콘텐츠 뒤에 깔리는 투명 오버레이 링크를 둔다.
-    // - 우클릭: 브라우저 기본 컨텍스트 메뉴(새 탭/창에서 열기) 사용
-    // - 좌클릭: 기존 위임 핸들러(listElement.onclick)가 처리하므로 기본 이동은 막음
-    // - 가운데(휠) 클릭: auxclick 위임 핸들러가 처리
-    div.classList.add("has-link-overlay");
-    const overlay = document.createElement("a");
-    overlay.className = "notification-link-overlay";
-    overlay.href = notifUrl;
-    overlay.tabIndex = -1;
-    overlay.setAttribute("aria-hidden", "true");
-    overlay.addEventListener("click", (e) => {
-      // 좌클릭(수식키 없음)의 기본 페이지 이동만 막고, 위임 핸들러가 처리하도록 둔다.
-      // 우클릭(기본 메뉴), Ctrl/Cmd+클릭(새 탭)은 브라우저 네이티브 동작을 유지.
-      if (e.button === 0 && !e.ctrlKey && !e.metaKey) e.preventDefault();
-    });
-    div.appendChild(overlay);
-  }
+  if (notifUrl) div.dataset.url = notifUrl;
 
   if (item.commentId) {
     div.dataset.commentId = item.commentId;

@@ -610,29 +610,6 @@ input:checked + .slider:before {
   opacity: 0.6;
 }
 
-/* 우클릭/휠클릭 새 탭 열기를 위한 투명 오버레이 링크 */
-.notification-item.has-link-overlay {
-  position: relative;
-}
-.notification-link-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: block;
-  text-decoration: none;
-  /* 좌클릭은 위임 핸들러가 처리하되, 우클릭 컨텍스트 메뉴는 이 링크 대상이
-     되도록 포인터 이벤트는 받게 둔다. */
-}
-/* 클릭이 필요한 인터랙티브 요소(내부 링크/버튼)만 오버레이 위로 올려
-   클릭 가능하게 유지한다. 일반 래퍼는 건드리지 않아 내부 절대배치 요소의
-   기준이 바뀌지 않도록 한다. (오버레이는 z-index:0, 이들은 z-index:1) */
-.notification-item.has-link-overlay a:not(.notification-link-overlay),
-.notification-item.has-link-overlay button,
-.notification-item.has-link-overlay .notification-attach-wrapper {
-  position: relative;
-  z-index: 1;
-}
-
 .notification-attach-wrapper {
   display: flex;
   gap: 2px;

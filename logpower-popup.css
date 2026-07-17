@@ -1,3 +1,39 @@
+/* ── 콘치즈 색상 변수(테마 대응 fallback) ──────────────────────────────────────
+   치지직이 색상 변수명을 개편(--Surface-Neutral-Base → --sem-color-surface-neutral-base
+   등)했다. 아래 CSS 는 var(--sem-color-*, <fallback>) 형태로 그 변수를 참조하는데,
+   fallback 을 라이트 색상 하드코딩 대신 콘치즈 변수로 두면 — 치지직 변수가 또
+   바뀌거나 다크모드에서 안 잡혀도, 우리 변수가 라이트/다크를 자동 전환한다.
+   (치지직은 다크모드에서 상위 요소에 .theme_dark 클래스를 붙인다.) */
+:root {
+  --conchzzk-background-neutral-base: #fff;
+  --conchzzk-border-brand-base: #32bb81;
+  --conchzzk-border-neutral-strong-static: #697183;
+  --conchzzk-content-brand-strong: #23815a;
+  --conchzzk-content-neutral-cool-strong: #2e3033;
+  --conchzzk-content-neutral-cool-stronger: #202224;
+  --conchzzk-content-neutral-cool-weak: #6d6e70;
+  --conchzzk-shadow-base: #0000000d;
+  --conchzzk-shadow-strong: #0000001a;
+  --conchzzk-surface-interaction-lighten-hovered: #0000000d;
+  --conchzzk-surface-neutral-base: #e1e1e5;
+  /* 구분선/스크롤바 등에 쓰는 경계선 색(구 --color-border-01-rgb 대체) */
+  --conchzzk-border-neutral-base: #c0c1c2;
+}
+.theme_dark {
+  --conchzzk-background-neutral-base: #141517;
+  --conchzzk-border-brand-base: #00e693;
+  --conchzzk-border-neutral-strong-static: #697183;
+  --conchzzk-content-brand-strong: #00ffa3;
+  --conchzzk-content-neutral-cool-strong: #c9cedc;
+  --conchzzk-content-neutral-cool-stronger: #dfe2ea;
+  --conchzzk-content-neutral-cool-weak: #697183;
+  --conchzzk-shadow-base: #0003;
+  --conchzzk-shadow-strong: #0000004d;
+  --conchzzk-surface-interaction-lighten-hovered: #ffffff0d;
+  --conchzzk-surface-neutral-base: #2e3033;
+  --conchzzk-border-neutral-base: #4d4d4d;
+}
+
 #conchzzk-live-logpower {
   position: relative;
   display: inline-flex;
@@ -7,11 +43,17 @@
   padding: 14px 4px;
   height: 16px;
   margin-left: auto;
-  color: var(--Content-Neutral-Cool-Strong);
+  color: var(
+    --sem-color-content-neutral-cool-strong,
+    var(--conchzzk-content-neutral-cool-strong)
+  );
   cursor: pointer;
 }
 #conchzzk-live-logpower:hover {
-  background: var(--Surface-Interaction-Lighten-Hovered);
+  background: var(
+    --sem-color-surface-interaction-lighten-hovered,
+    var(--conchzzk-surface-interaction-lighten-hovered)
+  );
 }
 #conchzzk-live-logpower .conchzzk-logpower-text {
   min-width: 22px;
@@ -25,8 +67,12 @@
   gap: 2px;
   margin-left: 2px;
   padding-left: 2px;
-  border-left: 1px solid rgba(var(--color-border-01-rgb), 0.25);
-  color: var(--Content-Brand-Strong);
+  border-left: 1px solid
+    var(--sem-color-border-neutral-base, var(--conchzzk-border-neutral-base));
+  color: var(
+    --sem-color-content-brand-strong,
+    var(--conchzzk-content-brand-strong)
+  );
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -44,7 +90,10 @@
   flex: 0 0 auto;
 }
 .conchzzk-logpower-claimed {
-  color: var(--Content-Brand-Strong);
+  color: var(
+    --sem-color-content-brand-strong,
+    var(--conchzzk-content-brand-strong)
+  );
 }
 .conchzzk-logpower-time {
   min-width: 31px;
@@ -54,11 +103,17 @@
 .logpower-tooltip .tooltip-text {
   visibility: hidden; /* 평소에는 숨김 */
   width: 80px;
-  background-color: var(--Surface-Neutral-Base);
-  color: var(--Content-Neutral-Cool-Stronger);
+  background-color: var(
+    --sem-color-surface-neutral-base,
+    var(--conchzzk-surface-neutral-base)
+  );
+  color: var(
+    --sem-color-content-neutral-cool-stronger,
+    var(--conchzzk-content-neutral-cool-stronger)
+  );
   box-shadow:
-    0 2px 8px 0 var(--color-shadow-layer04-02),
-    0 0 2px 0 var(--color-shadow-layer04-01);
+    0 2px 8px 0 var(--sem-color-shadow-base, var(--conchzzk-shadow-base)),
+    0 0 2px 0 var(--sem-color-shadow-strong, var(--conchzzk-shadow-strong));
   text-align: center;
   padding: 7px;
   border-radius: 6px;
@@ -111,11 +166,17 @@
   justify-content: center;
   max-height: 100%;
   overflow: visible;
-  color: var(--Content-Neutral-Cool-Strong);
-  background: var(--Background-Neutral-Base);
+  color: var(
+    --sem-color-content-neutral-cool-strong,
+    var(--conchzzk-content-neutral-cool-strong)
+  );
+  background: var(
+    --sem-color-background-neutral-base,
+    var(--conchzzk-background-neutral-base)
+  );
   box-shadow:
-    0 4px 4px 0 var(--Shadow-Strong),
-    0 4px 12px 4px var(--Shadow-Base);
+    0 4px 4px 0 var(--sem-color-shadow-strong, var(--conchzzk-shadow-strong)),
+    0 4px 12px 4px var(--sem-color-shadow-base, var(--conchzzk-shadow-base));
 }
 .chzzk_power_popup_action {
   align-self: stretch;
@@ -135,7 +196,10 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  color: var(--Content-Neutral-Cool-Weak);
+  color: var(
+    --sem-color-content-neutral-cool-weak,
+    var(--conchzzk-content-neutral-cool-weak)
+  );
   cursor: pointer;
 }
 .chzzk_power_popup_close_button svg {
@@ -151,11 +215,17 @@
   cursor: pointer;
 }
 .chzzk_power_popup_refresh_button svg {
-  fill: var(--Content-Neutral-Cool-Weak);
+  fill: var(
+    --sem-color-content-neutral-cool-weak,
+    var(--conchzzk-content-neutral-cool-weak)
+  );
 }
 .chzzk_power_popup_close_button:hover,
 .chzzk_power_popup_refresh_button:hover {
-  background: var(--Surface-Interaction-Lighten-Hovered);
+  background: var(
+    --sem-color-surface-interaction-lighten-hovered,
+    var(--conchzzk-surface-interaction-lighten-hovered)
+  );
 }
 .chzzk_power_popup_table {
   width: 100%;
@@ -180,7 +250,10 @@
   font-weight: bold;
   border-radius: 3px;
   padding: 0px 2px;
-  border: 1px solid var(--Border-Neutral-Strong-Static);
+  border: 1px solid var(
+    --sem-color-border-neutral-strong-static,
+    var(--conchzzk-border-neutral-strong-static)
+  );
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -190,7 +263,8 @@
   gap: 5px;
   font-weight: bold;
   font-size: 15px;
-  border-top: 1px solid rgba(var(--color-border-01-rgb), 0.16);
+  border-top: 1px solid
+    var(--sem-color-border-neutral-base, var(--conchzzk-border-neutral-base));
   padding-top: 5px;
   margin: 5px auto;
 }
@@ -199,7 +273,10 @@
   border-radius: 5px;
 }
 .channel-logpower a:hover {
-  background: var(--Surface-Interaction-Lighten-Hovered);
+  background: var(
+    --sem-color-surface-interaction-lighten-hovered,
+    var(--conchzzk-surface-interaction-lighten-hovered)
+  );
 }
 .logpower-limit-notice {
   color: #aaa;
@@ -218,7 +295,8 @@
   gap: 3px;
   margin: 5px auto 7px 0;
   padding-top: 5px;
-  border-top: 1px solid rgba(var(--color-border-01-rgb), 0.16);
+  border-top: 1px solid
+    var(--sem-color-border-neutral-base, var(--conchzzk-border-neutral-base));
 }
 .logpower-meta-wrap {
   min-width: 0;
@@ -240,7 +318,10 @@
   min-height: 28px;
   font-size: 12px;
   font-weight: bold;
-  color: var(--Content-Neutral-Cool-Strong);
+  color: var(
+    --sem-color-content-neutral-cool-strong,
+    var(--conchzzk-content-neutral-cool-strong)
+  );
 }
 .logpower-limit-stepper {
   display: inline-grid;
@@ -248,22 +329,38 @@
   align-items: stretch;
   height: 28px;
   overflow: hidden;
-  border: 1px solid var(--Border-Neutral-Strong-Static);
+  border: 1px solid var(
+    --sem-color-border-neutral-strong-static,
+    var(--conchzzk-border-neutral-strong-static)
+  );
   border-radius: 7px;
-  background: var(--Background-Neutral-Base);
+  background: var(
+    --sem-color-background-neutral-base,
+    var(--conchzzk-background-neutral-base)
+  );
 }
 .logpower-limit-stepper:focus-within {
-  box-shadow: 0 0 2px 1px var(--Border-Brand-Base);
+  box-shadow: 0 0 2px 1px
+    var(--sem-color-border-brand-base, var(--conchzzk-border-brand-base));
 }
 .logpower-limit-control input {
   width: 46px;
   height: 90%;
   box-sizing: border-box;
   border: 0;
-  border-right: 1px solid var(--Border-Neutral-Strong-Static);
+  border-right: 1px solid var(
+    --sem-color-border-neutral-strong-static,
+    var(--conchzzk-border-neutral-strong-static)
+  );
   border-radius: 0;
-  background: var(--Background-Neutral-Base);
-  color: var(--Content-Neutral-Cool-Strong);
+  background: var(
+    --sem-color-background-neutral-base,
+    var(--conchzzk-background-neutral-base)
+  );
+  color: var(
+    --sem-color-content-neutral-cool-strong,
+    var(--conchzzk-content-neutral-cool-strong)
+  );
   font-size: 13px;
   font-weight: bold;
   text-align: center;
@@ -293,16 +390,31 @@
   height: 14px;
   border: 0;
   padding: 0;
-  background: var(--Background-Neutral-Base);
-  color: var(--Content-Neutral-Cool-Weak);
+  background: var(
+    --sem-color-background-neutral-base,
+    var(--conchzzk-background-neutral-base)
+  );
+  color: var(
+    --sem-color-content-neutral-cool-weak,
+    var(--conchzzk-content-neutral-cool-weak)
+  );
   cursor: pointer;
 }
 .logpower-limit-step-button + .logpower-limit-step-button {
-  border-top: 1px solid var(--Border-Neutral-Strong-Static);
+  border-top: 1px solid var(
+    --sem-color-border-neutral-strong-static,
+    var(--conchzzk-border-neutral-strong-static)
+  );
 }
 .logpower-limit-step-button:hover:not(:disabled) {
-  background: var(--Surface-Interaction-Lighten-Hovered);
-  color: var(--Content-Neutral-Cool-Strong);
+  background: var(
+    --sem-color-surface-interaction-lighten-hovered,
+    var(--conchzzk-surface-interaction-lighten-hovered)
+  );
+  color: var(
+    --sem-color-content-neutral-cool-strong,
+    var(--conchzzk-content-neutral-cool-strong)
+  );
 }
 .logpower-limit-step-button:disabled {
   opacity: 0.35;
@@ -327,7 +439,10 @@
 }
 .channel-logpower-table::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: var(--Border-Neutral-Strong-Static);
+  background: var(
+    --sem-color-border-neutral-strong-static,
+    var(--conchzzk-border-neutral-strong-static)
+  );
 }
 .channel-logpower-table::-webkit-scrollbar-track {
   background: transparent;

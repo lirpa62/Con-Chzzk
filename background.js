@@ -2218,6 +2218,19 @@ function askContentToClaim(tabId, payload) {
   });
 }
 
+/**
+ * 통나무 파워 자동 획득을 수행해도 되는지 확인.
+ * - isPaused: 전체 알림 OFF (모든 기능 정지)
+ * - isLogPowerKeepPaused: '통나무 파워 알림 받기'의 마스터 OFF
+ * 둘 중 하나라도 켜져 있으면 자동 획득(PUT)까지 수행하지 않는다.
+ * (이전에는 알림/히스토리만 막고 획득은 그대로 수행됐다)
+ */
+async function isLogPowerClaimAllowed() {
+  const { isPaused = false, isLogPowerKeepPaused = false } =
+    await chrome.storage.local.get(["isPaused", "isLogPowerKeepPaused"]);
+  return !isPaused && !isLogPowerKeepPaused;
+}
+
 // 공통 로직을 처리할 헬퍼 함수
 async function checkAndClaimPowerForChannel(
   channelId,
@@ -2226,6 +2239,9 @@ async function checkAndClaimPowerForChannel(
   { force = false } = {},
 ) {
   try {
+    // 0) 설정에서 전체 OFF 또는 통나무 파워 전체 OFF면 자동 획득 자체를 하지 않음
+    if (!(await isLogPowerClaimAllowed())) return;
+
     // 1) GET
     const content = await fetchLogPower(channelId);
     const claims = Array.isArray(content?.claims) ? content.claims : [];
@@ -3228,7 +3244,21 @@ async function checkFollowedChannels() {
       return;
     }
 
-    const followingList = allFollowingList || [];
+    // 페이지네이션 중복/응답 겹침으로 같은 채널이 여러 번 들어올 수 있다.
+    // 채널을 두 번 처리하면 같은 채널 알림이 두세 번 뜨므로 channelId로 중복 제거.
+    const dedupedFollowingList = [];
+    {
+      const seenChannelIds = new Set();
+      for (const item of allFollowingList || []) {
+        const chId = item?.channel?.channelId;
+        if (!chId) continue;
+        if (seenChannelIds.has(chId)) continue;
+        seenChannelIds.add(chId);
+        dedupedFollowingList.push(item);
+      }
+    }
+
+    const followingList = dedupedFollowingList;
     if (followingList.length === 0) return;
 
     const notificationEnabledChannels = new Set();
@@ -3515,6 +3545,19 @@ async function checkFollowedChannels() {
     // 2-3. 새로 발생한 알림들을 최종 내역의 맨 앞에 추가
     if (newNotifications.length > 0) {
       finalHistory = [...newNotifications, ...finalHistory];
+    }
+
+    // 안전망: 동일 id 알림이 두 번 이상 들어오면 하나만 남긴다.
+    // (새 알림이 기존 내역과 겹치거나, 상위 로직에서 중복이 새어 들어와도
+    //  "같은 채널 알림이 두세 번" 뜨는 것을 막는다. 앞선 항목=최신을 유지)
+    {
+      const seenIds = new Set();
+      finalHistory = finalHistory.filter((item) => {
+        if (!item || !item.id) return true;
+        if (seenIds.has(item.id)) return false;
+        seenIds.add(item.id);
+        return true;
+      });
     }
 
     // 새로운 알림이 추가되었거나, 순서가 보장되지 않는 상황을 대비해 항상 시간순으로 재정렬
@@ -7996,12 +8039,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return;
         }
 
+        // 자동 획득이 꺼져 있으면 content.js가 보상 팝업을 숨기지 않도록 알린다.
+        // (숨기기만 하고 획득도 안 하면 사용자가 수동 획득 기회를 잃는다)
+        const allowed = await isLogPowerClaimAllowed();
+        if (!allowed) {
+          sendResponse({ ok: true, allowed: false });
+          return;
+        }
+
         await checkAndClaimPowerForChannel(channelId, tabId, null, {
           force: true,
         });
 
-        // 이 메시지의 응답은 content.js가 굳이 기다리지 않으므로 간단히 응답
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, allowed: true });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message || e) });
       }

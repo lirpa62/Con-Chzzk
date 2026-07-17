@@ -2267,23 +2267,33 @@ function showLogPowerBalancesPopup(limit = Infinity) {
     lastHandledAt = now;
     btn.__conchzzkHandled = true;
 
+    const hidePopup = () => {
+      try {
+        btn.parentElement.style.display = "none";
+      } catch (_) {}
+    };
+
     const channelId = getChannelIdFromUrl();
     if (channelId) {
-      // background에게 “이 채널의 claims를 지금 확인해 달라” 요청
+      // background에게 “이 채널의 claims를 지금 확인해 달라” 요청.
+      // 설정에서 자동 획득이 꺼져 있으면(allowed=false) 보상 팝업을 숨기지 않아
+      // 사용자가 직접 획득할 수 있게 둔다.
       try {
         chrome.runtime.sendMessage(
           { type: "LOG_POWER_CHECK_NOW", channelId },
-          () => void chrome.runtime.lastError, // 응답 에러 무시
+          (res) => {
+            void chrome.runtime.lastError; // 응답 에러 무시
+            if (res && res.allowed === false) return; // 자동 획득 OFF → 팝업 유지
+            hidePopup();
+          },
         );
       } catch (e) {
         // 확장 업데이트 직후 고아 컨텍스트일 때 발생
         console.warn("[LOG_POWER_CHECK_NOW] dropped:", String(e?.message || e));
       }
+    } else {
+      hidePopup();
     }
-
-    try {
-      btn.parentElement.style.display = "none";
-    } catch (_) {}
 
     // 쿨다운 후 다시 처리 가능
     setTimeout(() => {
